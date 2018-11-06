@@ -559,16 +559,18 @@ void draw_hwdbg(sf::RenderWindow& win)
 	}
 }
 
+pwr_status_t latest_pwr;
+
 void draw_bat_status(sf::RenderWindow& win)
 {
 	sf::Text t;
 	char buf[256];
 	t.setFont(arial);
 
-	sprintf(buf, "BATT %2.2f V (%d%%)", bat_voltage, bat_percentage);
+	sprintf(buf, "BATT %2.2f V (%d%%)", latest_pwr.bat_mv/1000.0, latest_pwr.bat_percent);
 	t.setString(buf);
 	t.setCharacterSize(18);
-	float vlevel = (float)bat_percentage/100.0;
+	float vlevel = (float)latest_pwr.bat_percent/100.0;
 	int r = (1.0-vlevel)*250.0;
 	int g = vlevel*250.0;
 	if(r > 250) r = 250; if(r<0) r=0;
@@ -577,7 +579,7 @@ void draw_bat_status(sf::RenderWindow& win)
 	t.setPosition(screen_x-180,screen_y-45);
 	win.draw(t);
 
-	sprintf(buf, "charger input %2.2f V", cha_voltage);
+	sprintf(buf, "charger input %2.2f V", latest_pwr.charger_input_mv/1000.0);
 	t.setString(buf);
 	t.setCharacterSize(14);
 	if(cha_voltage < 1.0)
@@ -590,23 +592,18 @@ void draw_bat_status(sf::RenderWindow& win)
 	t.setPosition(screen_x-180,screen_y-20);
 	win.draw(t);
 
-	if(charging)
+	int cur_tot = latest_pwr.pha_charging_current_ma + latest_pwr.phb_charging_current_ma;
+
+	if(cur_tot > 0)
 	{
-		t.setString("charging");
+		sprintf(buf, "charging @ %2.2f A", cur_tot/1000.0);
+		t.setString(buf);
 		t.setCharacterSize(16);
 		t.setFillColor(sf::Color(200,110,0));
 		t.setPosition(screen_x-130,screen_y-65);
 		win.draw(t);
 	}
 
-	if(charge_finished)
-	{
-		t.setString("charge finished");
-		t.setCharacterSize(16);
-		t.setFillColor(sf::Color(10,200,50));
-		t.setPosition(screen_x-160,screen_y-65);
-		win.draw(t);
-	}
 }
 
 int state_is_unsynchronized;
@@ -680,6 +677,346 @@ void draw_texts(sf::RenderWindow& win)
 		win.draw(circ);
 
 	}
+
+}
+
+#define TOF_XS (160)
+#define TOF_YS (60)
+
+#define TOF_XS_NARROW (32)
+#define TOF_YS_NARROW (44)
+
+#define TOF_NARROW_Y_START (8)
+#define TOF_NARROW_X_START (64)
+#define N_TOF_SENSORS 10
+
+tof_raw_dist_t latest_tof_dists[N_TOF_SENSORS];
+tof_raw_ampl8_t latest_tof_ampls[N_TOF_SENSORS];
+
+#define DATA_LOW 65534
+#define DATA_OVEREXP 65535
+
+float blue_dist = 10000.0;
+
+void draw_tof_dist(sf::RenderWindow& win, int xs, int ys, uint16_t* img, int x_on_screen, int y_on_screen, float scale, bool mir_x, bool mir_y, bool rotated)
+{
+	static uint8_t pix[TOF_XS*TOF_YS*4];
+
+	int yy = (mir_y?(ys-1):0);
+
+	int inx = 0, iny = 0;
+	while(1)
+	{
+		int xx = (mir_x?(xs-1):0);
+		while(1)
+		{
+			int pixval;
+			pixval = img[iny*xs+inx];
+
+			if(pixval == DATA_OVEREXP)
+			{
+				pix[4*(yy*xs+xx)+0] = 160;
+				pix[4*(yy*xs+xx)+1] = 0;
+				pix[4*(yy*xs+xx)+2] = 160;
+			}
+			else if(pixval == DATA_LOW)
+			{
+				pix[4*(yy*xs+xx)+0] = 0;
+				pix[4*(yy*xs+xx)+1] = 0;
+				pix[4*(yy*xs+xx)+2] = 128;
+			}
+			else
+			{
+				float percolor = blue_dist/3.0;
+
+				float mm = pixval;
+				float f_r = 1.0 - fabs(mm-0*percolor)/percolor;
+				float f_g = 1.0 - fabs(mm-1*percolor)/percolor;
+				float f_b = 1.0 - fabs(mm-2*percolor)/percolor;
+
+				int r = f_r*256.0; if(r<0) r=0; else if(r>255) r=255;
+				int g = f_g*256.0; if(g<0) g=0; else if(g>255) g=255;
+				int b = f_b*256.0; if(b<0) b=0; else if(b>255) b=255;
+
+
+				pix[4*(yy*xs+xx)+0] = r;
+				pix[4*(yy*xs+xx)+1] = g;
+				pix[4*(yy*xs+xx)+2] = b;
+			}
+			pix[4*(yy*xs+xx)+3] = 255;
+
+			inx++;
+			if(inx==xs)
+			{
+				inx=0; iny++;
+			}
+			if( (mir_x && --xx<0) || (!mir_x && ++xx>=xs) ) break;
+		}
+		if( (mir_y && --yy<0) || (!mir_y && ++yy>=ys) ) break;
+	}
+
+	sf::Texture t;
+	t.create(xs, ys);
+	t.setSmooth(false);
+	t.update(pix);
+	sf::Sprite sprite;
+	sprite.setTexture(t);
+	sprite.setPosition((float)x_on_screen, (float)y_on_screen);
+	sprite.setScale(sf::Vector2f(scale, scale));
+	if(rotated)
+	{
+		sprite.setRotation(90.0);
+		sprite.setPosition(x_on_screen+ys*scale, y_on_screen);
+	}
+	else
+	{
+		sprite.setPosition(x_on_screen, y_on_screen);
+	}
+	win.draw(sprite);
+}
+
+void draw_tof_ampl(sf::RenderWindow& win, int xs, int ys, uint8_t* img, int x_on_screen, int y_on_screen, float scale, bool mir_x, bool mir_y, bool rotated)
+{
+	static uint8_t pix[TOF_XS*TOF_YS*4];
+
+	int yy = (mir_y?(ys-1):0);
+
+	int inx = 0, iny = 0;
+	while(1)
+	{
+		int xx = (mir_x?(xs-1):0);
+		while(1)
+		{
+			int pixval;
+			pixval = img[iny*xs+inx];
+			pix[4*(yy*xs+xx)+0] = pixval;
+			pix[4*(yy*xs+xx)+1] = pixval;
+			pix[4*(yy*xs+xx)+2] = pixval;
+			pix[4*(yy*xs+xx)+3] = 255;
+
+			inx++;
+			if(inx==xs)
+			{
+				inx=0; iny++;
+			}
+			if( (mir_x && --xx<0) || (!mir_x && ++xx>=xs) ) break;
+		}
+		if( (mir_y && --yy<0) || (!mir_y && ++yy>=ys) ) break;
+	}
+
+	sf::Texture t;
+	t.create(xs, ys);
+	t.setSmooth(false);
+	t.update(pix);
+	sf::Sprite sprite;
+	sprite.setTexture(t);
+	sprite.setPosition((float)x_on_screen, (float)y_on_screen);
+	sprite.setScale(sf::Vector2f(scale, scale));
+	if(rotated)
+	{
+		sprite.setRotation(90.0);
+		sprite.setPosition(x_on_screen+ys*scale, y_on_screen);
+	}
+	else
+	{
+		sprite.setPosition(x_on_screen, y_on_screen);
+	}
+	win.draw(sprite);
+}
+
+
+void draw_tof_dist_together(sf::RenderWindow& win, uint16_t* img, int x_on_screen, int y_on_screen, float scale, bool mir_x, bool mir_y, bool rotated, uint16_t* img_narrow)
+{
+	static uint8_t pix[TOF_XS*TOF_YS*4];
+
+	int yy = (mir_y?(TOF_YS-1):0);
+
+	int inx = 0, iny = 0;
+	while(1)
+	{
+		int xx = (mir_x?(TOF_XS-1):0);
+		while(1)
+		{
+			int pixval;
+
+			if(img_narrow != NULL &&
+			   inx >= TOF_NARROW_X_START && inx < TOF_NARROW_X_START+TOF_XS_NARROW &&
+			   iny >= TOF_NARROW_Y_START && iny < TOF_NARROW_Y_START+TOF_YS_NARROW)
+			{
+				pixval = img_narrow[(iny-TOF_NARROW_Y_START)*TOF_XS_NARROW+(inx-TOF_NARROW_X_START)];
+			}
+			else
+			{
+				pixval = img[iny*TOF_XS+inx];
+			}
+
+			if(pixval == DATA_OVEREXP)
+			{
+				pix[4*(yy*TOF_XS+xx)+0] = 160;
+				pix[4*(yy*TOF_XS+xx)+1] = 0;
+				pix[4*(yy*TOF_XS+xx)+2] = 160;
+			}
+			else if(pixval == DATA_LOW)
+			{
+				pix[4*(yy*TOF_XS+xx)+0] = 0;
+				pix[4*(yy*TOF_XS+xx)+1] = 0;
+				pix[4*(yy*TOF_XS+xx)+2] = 128;
+			}
+			else
+			{
+				float percolor = blue_dist/3.0;
+
+				float mm = pixval;
+				float f_r = 1.0 - fabs(mm-0*percolor)/percolor;
+				float f_g = 1.0 - fabs(mm-1*percolor)/percolor;
+				float f_b = 1.0 - fabs(mm-2*percolor)/percolor;
+
+				int r = f_r*256.0; if(r<0) r=0; else if(r>255) r=255;
+				int g = f_g*256.0; if(g<0) g=0; else if(g>255) g=255;
+				int b = f_b*256.0; if(b<0) b=0; else if(b>255) b=255;
+
+
+				pix[4*(yy*TOF_XS+xx)+0] = r;
+				pix[4*(yy*TOF_XS+xx)+1] = g;
+				pix[4*(yy*TOF_XS+xx)+2] = b;
+			}
+			pix[4*(yy*TOF_XS+xx)+3] = 255;
+
+			inx++;
+			if(inx==TOF_XS)
+			{
+				inx=0; iny++;
+			}
+			if( (mir_x && --xx<0) || (!mir_x && ++xx>=TOF_XS) ) break;
+		}
+		if( (mir_y && --yy<0) || (!mir_y && ++yy>=TOF_YS) ) break;
+	}
+
+	sf::Texture t;
+	t.create(TOF_XS, TOF_YS);
+	t.setSmooth(false);
+	t.update(pix);
+	sf::Sprite sprite;
+	sprite.setTexture(t);
+	sprite.setPosition((float)x_on_screen, (float)y_on_screen);
+	sprite.setScale(sf::Vector2f(scale, scale));
+	if(rotated)
+	{
+		sprite.setRotation(90.0);
+		sprite.setPosition(x_on_screen+TOF_YS*scale, y_on_screen);
+	}
+	else
+	{
+		sprite.setPosition(x_on_screen, y_on_screen);
+	}
+	win.draw(sprite);
+}
+
+void draw_tof_ampl_together(sf::RenderWindow& win, uint8_t* img, int x_on_screen, int y_on_screen, float scale, bool mir_x, bool mir_y, bool rotated, uint8_t* img_narrow)
+{
+	static uint8_t pix[TOF_XS*TOF_YS*4];
+
+	int yy = (mir_y?(TOF_YS-1):0);
+
+	int inx = 0, iny = 0;
+
+	while(1)
+	{
+
+		int xx = (mir_x?(TOF_XS-1):0);
+		while(1)
+		{
+
+			int pixval;
+			bool isnarrow = false;
+			if(img_narrow != NULL &&
+			   inx >= TOF_NARROW_X_START && inx < TOF_NARROW_X_START+TOF_XS_NARROW &&
+			   iny >= TOF_NARROW_Y_START && iny < TOF_NARROW_Y_START+TOF_YS_NARROW)
+			{
+				pixval = img_narrow[(iny-TOF_NARROW_Y_START)*TOF_XS_NARROW+(inx-TOF_NARROW_X_START)];
+				isnarrow = true;
+			}
+			else
+			{
+				pixval = img[iny*TOF_XS+inx];
+			}
+
+			if(isnarrow)
+			{
+				pix[4*(yy*TOF_XS+xx)+0] = pixval;
+				pix[4*(yy*TOF_XS+xx)+1] = pixval;
+				pix[4*(yy*TOF_XS+xx)+2] = pixval>>1;
+			}
+			else
+			{
+				pix[4*(yy*TOF_XS+xx)+0] = pixval;
+				pix[4*(yy*TOF_XS+xx)+1] = pixval>>1;
+				pix[4*(yy*TOF_XS+xx)+2] = pixval;
+			}
+			pix[4*(yy*TOF_XS+xx)+3] = 255;
+
+			inx++;
+			if(inx==TOF_XS)
+			{
+				inx=0; iny++;
+			}
+
+			if( (mir_x && --xx<0) || (!mir_x && ++xx>=TOF_XS) ) break;
+		}
+
+		if( (mir_y && --yy<0) || (!mir_y && ++yy>=TOF_YS) ) break;
+	}
+
+	sf::Texture t;
+	t.create(TOF_XS, TOF_YS);
+	t.setSmooth(false);
+	t.update(pix);
+	sf::Sprite sprite;
+	sprite.setTexture(t);
+	sprite.setPosition((float)x_on_screen, (float)y_on_screen);
+	sprite.setScale(sf::Vector2f(scale, scale));
+	if(rotated)
+	{
+		sprite.setRotation(90.0);
+		sprite.setPosition(x_on_screen+TOF_YS*scale, y_on_screen);
+	}
+	else
+	{
+		sprite.setPosition(x_on_screen, y_on_screen);
+	}
+	win.draw(sprite);
+}
+
+
+void draw_tof_raws(sf::RenderWindow& win)
+{
+	float scale = 2.5;
+	#if TOGETHER
+		draw_tof_dist_together(win, latest_tof_dists[0].dist, 20, 20, scale, false, false, true, latest_tof_dists[0].dist_narrow);
+		draw_tof_ampl_together(win, latest_tof_ampls[0].ampl, 20, scale*160.0+22, scale, false, false, true, latest_tof_ampls[0].narrow);
+	#else
+		draw_tof_dist(win, TOF_XS_NARROW, TOF_YS_NARROW, latest_tof_dists[0].dist_narrow, 20+scale*((TOF_YS-TOF_YS_NARROW)/2.0), 20, scale, false, false, true);
+		draw_tof_dist(win, TOF_XS, TOF_YS, latest_tof_dists[0].dist, 20, 20+scale*TOF_XS_NARROW, scale, false, false, true);
+		draw_tof_ampl(win, TOF_XS_NARROW, TOF_YS_NARROW, latest_tof_ampls[0].ampl_narrow, 20+scale*((TOF_YS-TOF_YS_NARROW)/2.0), 20+(TOF_XS+TOF_XS_NARROW)*scale, scale, false, false, true);
+		draw_tof_ampl(win, TOF_XS, TOF_YS, latest_tof_ampls[0].ampl, 20, 20+scale*TOF_XS_NARROW+(TOF_XS+TOF_XS_NARROW)*scale, scale, false, false, true);
+		
+
+		sf::Text te;
+		char tbuf[32];
+		sprintf(tbuf, "%u (%u%%)", latest_tof_dists[0].narrow_stray_estimate_adc, (100*latest_tof_dists[0].narrow_stray_estimate_adc+1)/16384);
+		te.setFont(arial);
+		te.setFillColor(sf::Color(255,255,255,255));
+		te.setString(tbuf);
+		te.setCharacterSize(10);
+		te.setPosition(20+scale*((TOF_YS-TOF_YS_NARROW)/2.0) , 20);
+		win.draw(te);
+
+		sprintf(tbuf, "%u (%u%%)", latest_tof_dists[0].wide_stray_estimate_adc, (100*latest_tof_dists[0].wide_stray_estimate_adc+1)/16384);
+		te.setString(tbuf);
+		te.setPosition(20+scale*((TOF_YS-TOF_YS_NARROW)/2.0) , 20+scale*TOF_XS_NARROW);
+		win.draw(te);
+
+	#endif
 
 }
 
@@ -1171,23 +1508,44 @@ static uint8_t* rxbuf;
 #define MAX_ACCEPTED_MSG_PAYLEN 16777215
 
 
-void print_test_msg1(void*)
+void print_test_msg1(void* m)
 {
 }
-void print_test_msg2(void*)
+void print_test_msg2(void* m)
 {
 }
-void print_test_msg3(void*)
+void print_test_msg3(void* m)
 {
 }
-void print_pwr_status(void*)
+void print_pwr_status(void* m)
 {
+	memcpy(&latest_pwr, m, sizeof latest_pwr);
+//	pwr_status_t* mm = m;
 }
-void print_tof_raw_dist(void*)
+void print_tof_raw_dist(void* m)
 {
+	tof_raw_dist_t* mm = m;
+	uint8_t idx = mm->sensor_idx;
+	if(idx >= N_TOF_SENSORS)
+	{
+		printf("Invalid tof sensor idx=%u\n", idx);
+		return;
+	}
+
+	memcpy(&latest_tof_dists[idx], m, sizeof latest_tof_dists[0]);
 }
-void print_tof_raw_ampl8(void*)
+void print_tof_raw_ampl8(void* m)
 {
+	tof_raw_ampl8_t* mm = m;
+	uint8_t idx = mm->sensor_idx;
+	if(idx >= N_TOF_SENSORS)
+	{
+		printf("Invalid tof sensor idx=%u\n", idx);
+		return;
+	}
+
+	memcpy(&latest_tof_ampls[idx], m, sizeof latest_tof_ampls[0]);
+
 }
 /*
 void print_(void*)
@@ -2193,7 +2551,7 @@ int main(int argc, char** argv)
 
 		#endif
 
-		draw_picture(win);
+		draw_tof_raws(win);
 
 		win.display();
 
