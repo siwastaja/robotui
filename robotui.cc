@@ -692,6 +692,7 @@ void draw_texts(sf::RenderWindow& win)
 
 tof_raw_dist_t latest_tof_dists[N_TOF_SENSORS];
 tof_raw_ampl8_t latest_tof_ampls[N_TOF_SENSORS];
+tof_raw_ambient8_t latest_tof_ambients[N_TOF_SENSORS];
 
 #define DATA_LOW 65534
 #define DATA_OVEREXP 65535
@@ -987,37 +988,64 @@ void draw_tof_ampl_together(sf::RenderWindow& win, uint8_t* img, int x_on_screen
 	win.draw(sprite);
 }
 
+bool draw_ambients = false;
 
 void draw_tof_raws(sf::RenderWindow& win)
 {
-	float scale = 2.5;
-	#if TOGETHER
-		draw_tof_dist_together(win, latest_tof_dists[0].dist, 20, 20, scale, false, false, true, latest_tof_dists[0].dist_narrow);
-		draw_tof_ampl_together(win, latest_tof_ampls[0].ampl, 20, scale*160.0+22, scale, false, false, true, latest_tof_ampls[0].narrow);
-	#else
-		draw_tof_dist(win, TOF_XS_NARROW, TOF_YS_NARROW, latest_tof_dists[0].dist_narrow, 20+scale*((TOF_YS-TOF_YS_NARROW)/2.0), 20, scale, false, false, true);
-		draw_tof_dist(win, TOF_XS, TOF_YS, latest_tof_dists[0].dist, 20, 20+scale*TOF_XS_NARROW, scale, false, false, true);
-		draw_tof_ampl(win, TOF_XS_NARROW, TOF_YS_NARROW, latest_tof_ampls[0].ampl_narrow, 20+scale*((TOF_YS-TOF_YS_NARROW)/2.0), 20+(TOF_XS+TOF_XS_NARROW)*scale, scale, false, false, true);
-		draw_tof_ampl(win, TOF_XS, TOF_YS, latest_tof_ampls[0].ampl, 20, 20+scale*TOF_XS_NARROW+(TOF_XS+TOF_XS_NARROW)*scale, scale, false, false, true);
+	float scale = 2.0;
+
+	static const int order[10] = { 5,4,3,2,1,0,9,8,7,6};
+
+	sf::RectangleShape rect(sf::Vector2f( 10*(scale*60.0+4)  + 6, scale*TOF_XS_NARROW+(TOF_XS+TOF_XS_NARROW)*scale+6+scale*TOF_XS +17  +6));
+	rect.setPosition(20-3, 20-20);
+	rect.setFillColor(sf::Color(255,255,255,160));
+	win.draw(rect);
+
+	for(int ii=0; ii<10; ii++)
+	{
+		int i = order[ii];
+		#if TOGETHER
+			draw_tof_dist_together(win, latest_tof_dists[i].dist, 20+scale*60.0+4, ii*scale*160.0+20, 20, scale, false, false, true, latest_tof_dists[i].dist_narrow);
+			draw_tof_ampl_together(win, latest_tof_ampls[i].ampl, 20+scale*60.0+4, ii*scale*160.0+20+2, scale, false, false, true, latest_tof_ampls[i].narrow);
+		#else
+			draw_tof_dist(win, TOF_XS_NARROW, TOF_YS_NARROW, latest_tof_dists[i].dist_narrow,
+				20+scale*((TOF_YS-TOF_YS_NARROW)/2.0)+ii*(scale*60.0+4), 20, scale, false, false, true);
+			draw_tof_dist(win, TOF_XS, TOF_YS, latest_tof_dists[i].dist,
+				20+ii*(scale*60.0+4), 20+scale*TOF_XS_NARROW+2, scale, false, false, true);
+
+			draw_tof_ampl(win, TOF_XS_NARROW, TOF_YS_NARROW, latest_tof_ampls[i].ampl_narrow, 
+				20+scale*((TOF_YS-TOF_YS_NARROW)/2.0)+ii*(scale*60.0+4), 20+(TOF_XS+TOF_XS_NARROW)*scale+4, scale, false, false, true);
+			draw_tof_ampl(win, TOF_XS, TOF_YS, draw_ambients?(latest_tof_ambients[i].ambient):(latest_tof_ampls[i].ampl),
+				20+ii*(scale*60.0+4), 20+scale*TOF_XS_NARROW+(TOF_XS+TOF_XS_NARROW)*scale+6, scale, false, false, true);
 		
 
-		sf::Text te;
-		char tbuf[32];
-		sprintf(tbuf, "%u (%u%%)", latest_tof_dists[0].narrow_stray_estimate_adc, (100*latest_tof_dists[0].narrow_stray_estimate_adc+1)/16384);
-		te.setFont(arial);
-		te.setFillColor(sf::Color(255,255,255,255));
-		te.setString(tbuf);
-		te.setCharacterSize(10);
-		te.setPosition(20+scale*((TOF_YS-TOF_YS_NARROW)/2.0) , 20);
-		win.draw(te);
+			sf::Text te;
+			char tbuf[32];
+			sprintf(tbuf, "%u (%u%%)", latest_tof_dists[i].narrow_stray_estimate_adc, (100*latest_tof_dists[i].narrow_stray_estimate_adc+1)/16384);
+			te.setFont(arial);
+			te.setFillColor(sf::Color(255,255,255,255));
+			te.setString(tbuf);
+			te.setCharacterSize(10);
+			te.setPosition(20+scale*((TOF_YS-TOF_YS_NARROW)/2.0) +ii*(scale*60.0+4), 20);
+			win.draw(te);
 
-		sprintf(tbuf, "%u (%u%%)", latest_tof_dists[0].wide_stray_estimate_adc, (100*latest_tof_dists[0].wide_stray_estimate_adc+1)/16384);
-		te.setString(tbuf);
-		te.setPosition(20+scale*((TOF_YS-TOF_YS_NARROW)/2.0) , 20+scale*TOF_XS_NARROW);
-		win.draw(te);
+			sprintf(tbuf, "%u (%u%%)", latest_tof_dists[i].wide_stray_estimate_adc, (100*latest_tof_dists[i].wide_stray_estimate_adc+1)/16384);
+			te.setString(tbuf);
+			te.setPosition(20+scale*((TOF_YS-TOF_YS_NARROW)/2.0) +ii*(scale*60.0+4), 20+scale*TOF_XS_NARROW+2);
+			win.draw(te);
 
-	#endif
+			sprintf(tbuf, "TOF%u", i);
+			te.setString(tbuf);
+			te.setCharacterSize(14);
+			te.setFillColor(sf::Color(0,0,0,255));
+			te.setPosition(20 + scale*20.0 +ii*(scale*60.0+4), 20-17);
+			win.draw(te);
+			te.setFillColor(sf::Color(255,255,255,255));
+			te.setPosition(20 + scale*20.0 +ii*(scale*60.0+4)-1, 20-17-1);
+			win.draw(te);
 
+		#endif
+	}
 }
 
 void draw_picture(sf::RenderWindow& win)
@@ -1547,6 +1575,20 @@ void print_tof_raw_ampl8(void* m)
 	memcpy(&latest_tof_ampls[idx], m, sizeof latest_tof_ampls[0]);
 
 }
+
+void print_tof_raw_ambient8(void* m)
+{
+	tof_raw_ampl8_t* mm = m;
+	uint8_t idx = mm->sensor_idx;
+	if(idx >= N_TOF_SENSORS)
+	{
+		printf("Invalid tof sensor idx=%u\n", idx);
+		return;
+	}
+
+	memcpy(&latest_tof_ambients[idx], m, sizeof latest_tof_ambients[0]);
+}
+
 /*
 void print_(void*)
 {
