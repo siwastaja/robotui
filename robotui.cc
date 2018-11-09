@@ -1589,8 +1589,12 @@ void print_tof_raw_ambient8(void* m)
 	memcpy(&latest_tof_ambients[idx], m, sizeof latest_tof_ambients[0]);
 }
 
+void print_tof_diagnostics(void* m)
+{
+}
+
 /*
-void print_(void*)
+void print_(void* m)
 {
 }
 */
@@ -1938,7 +1942,7 @@ int main(int argc, char** argv)
 	sf::ContextSettings sets;
 	sets.antialiasingLevel = 8;
 	sf::RenderWindow win(sf::VideoMode(screen_x,screen_y), "PULUROBOT SLAM", sf::Style::Default, sets);
-	win.setFramerateLimit(30);
+	win.setFramerateLimit(15);
 
 	sf::Texture decors[NUM_DECORS];
 
