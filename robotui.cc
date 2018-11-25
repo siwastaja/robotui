@@ -697,7 +697,7 @@ tof_raw_ambient8_t latest_tof_ambients[N_TOF_SENSORS];
 #define DATA_LOW 65534
 #define DATA_OVEREXP 65535
 
-float blue_dist = 10000.0;
+float blue_dist = 5000.0;
 
 void draw_tof_dist(sf::RenderWindow& win, int xs, int ys, uint16_t* img, int x_on_screen, int y_on_screen, float scale, bool mir_x, bool mir_y, bool rotated)
 {
@@ -992,7 +992,7 @@ bool draw_ambients = false;
 
 void draw_tof_raws(sf::RenderWindow& win)
 {
-	float scale = 2.0;
+	float scale = 2.5;
 
 	static const int order[10] = { 5,4,3,2,1,0,9,8,7,6};
 
@@ -1003,20 +1003,54 @@ void draw_tof_raws(sf::RenderWindow& win)
 
 	for(int ii=0; ii<10; ii++)
 	{
+		bool mir_x = false;
+		bool mir_y = false;
+		bool rotated = true;
+
+		switch(latest_tof_dists[ii].sensor_orientation)
+		{
+			case 1:
+			rotated = true;
+			mir_x = false;
+			mir_y = false;
+			break;
+
+			case 2:
+			rotated = true;
+			mir_x = true;
+			mir_y = true;
+
+			break;
+			case 3:
+			rotated = false;
+			mir_x = false;
+			mir_y = false;
+
+			break;
+			case 4:
+			rotated = false;
+			mir_x = false;
+			mir_y = false;
+
+			break;
+			default:break;
+		}
+		
+
 		int i = order[ii];
 		#if TOGETHER
-			draw_tof_dist_together(win, latest_tof_dists[i].dist, 20+scale*60.0+4, ii*scale*160.0+20, 20, scale, false, false, true, latest_tof_dists[i].dist_narrow);
-			draw_tof_ampl_together(win, latest_tof_ampls[i].ampl, 20+scale*60.0+4, ii*scale*160.0+20+2, scale, false, false, true, latest_tof_ampls[i].narrow);
+			draw_tof_dist_together(win, latest_tof_dists[i].dist, 20+scale*60.0+4, ii*scale*160.0+20, 20, scale, mir_x, mir_y, rotated, latest_tof_dists[i].dist_narrow);
+			draw_tof_ampl_together(win, latest_tof_ampls[i].ampl, 20+scale*60.0+4, ii*scale*160.0+20+2, scale, mir_x, mir_y, rotated, latest_tof_ampls[i].narrow);
 		#else
 			draw_tof_dist(win, TOF_XS_NARROW, TOF_YS_NARROW, latest_tof_dists[i].dist_narrow,
-				20+scale*((TOF_YS-TOF_YS_NARROW)/2.0)+ii*(scale*60.0+4), 20, scale, false, false, true);
+				20+scale*((TOF_YS-TOF_YS_NARROW)/2.0)+ii*(scale*60.0+4), 20, scale, mir_x, mir_y, rotated);
 			draw_tof_dist(win, TOF_XS, TOF_YS, latest_tof_dists[i].dist,
-				20+ii*(scale*60.0+4), 20+scale*TOF_XS_NARROW+2, scale, false, false, true);
+				20+ii*(scale*60.0+4), 20+scale*TOF_XS_NARROW+2, scale, mir_x, mir_y, rotated);
 
 			draw_tof_ampl(win, TOF_XS_NARROW, TOF_YS_NARROW, latest_tof_ampls[i].ampl_narrow, 
-				20+scale*((TOF_YS-TOF_YS_NARROW)/2.0)+ii*(scale*60.0+4), 20+(TOF_XS+TOF_XS_NARROW)*scale+4, scale, false, false, true);
+				20+scale*((TOF_YS-TOF_YS_NARROW)/2.0)+ii*(scale*60.0+4), 20+(TOF_XS+TOF_XS_NARROW)*scale+4, scale, mir_x, mir_y, rotated);
 			draw_tof_ampl(win, TOF_XS, TOF_YS, draw_ambients?(latest_tof_ambients[i].ambient):(latest_tof_ampls[i].ampl),
-				20+ii*(scale*60.0+4), 20+scale*TOF_XS_NARROW+(TOF_XS+TOF_XS_NARROW)*scale+6, scale, false, false, true);
+				20+ii*(scale*60.0+4), 20+scale*TOF_XS_NARROW+(TOF_XS+TOF_XS_NARROW)*scale+6, scale, mir_x, mir_y, rotated);
 		
 
 			sf::Text te;
@@ -1593,6 +1627,10 @@ void print_tof_diagnostics(void* m)
 {
 }
 
+void print_tof_raw_img(void* m)
+{
+}
+
 /*
 void print_(void* m)
 {
@@ -1942,7 +1980,7 @@ int main(int argc, char** argv)
 	sf::ContextSettings sets;
 	sets.antialiasingLevel = 8;
 	sf::RenderWindow win(sf::VideoMode(screen_x,screen_y), "PULUROBOT SLAM", sf::Style::Default, sets);
-	win.setFramerateLimit(15);
+	win.setFramerateLimit(7);
 
 	sf::Texture decors[NUM_DECORS];
 
@@ -2079,42 +2117,45 @@ int main(int argc, char** argv)
 
 		if(online)
 		{
-			sf::Socket::Status ret;
-			if( (ret = tcpsock.receive(buf, 5, received)) == sf::Socket::Done)
+			for(int i=0; i<20; i++)
 			{
-				if(received != 5)
+				sf::Socket::Status ret;
+				while( (ret = tcpsock.receive(buf, 5, received)) == sf::Socket::Done)
 				{
-					printf("error horror.\n");
-				}
-
-				uint16_t msgid = ((uint16_t)buf[0]<<8) | ((uint16_t)buf[1]<<0);
-				uint32_t paylen = ((uint32_t)buf[2]<<16) | ((uint32_t)buf[3]<<8) | ((uint32_t)buf[4]<<0);
-
-				//printf("msgid=%u paylen=%u\n", msgid, paylen);
-
-
-
-				if(paylen > MAX_ACCEPTED_MSG_PAYLEN)
-				{
-					printf("Error: msg too long.\n");
-					win.close();
-				}
-
-				uint32_t total_rx = 0;
-				while(total_rx < paylen)
-				{
-					if( (ret = tcpsock.receive(&rxbuf[total_rx], paylen-total_rx, received)) == sf::Socket::Done)
+					if(received != 5)
 					{
-						total_rx += received;
-			//			printf("    rx %d -> total %d\n", received, total_rx);
+						printf("error horror.\n");
 					}
+
+					uint16_t msgid = ((uint16_t)buf[0]<<8) | ((uint16_t)buf[1]<<0);
+					uint32_t paylen = ((uint32_t)buf[2]<<16) | ((uint32_t)buf[3]<<8) | ((uint32_t)buf[4]<<0);
+
+					//printf("msgid=%u paylen=%u\n", msgid, paylen);
+
+
+
+					if(paylen > MAX_ACCEPTED_MSG_PAYLEN)
+					{
+						printf("Error: msg too long.\n");
+						win.close();
+					}
+
+					uint32_t total_rx = 0;
+					while(total_rx < paylen)
+					{
+						if( (ret = tcpsock.receive(&rxbuf[total_rx], paylen-total_rx, received)) == sf::Socket::Done)
+						{
+							total_rx += received;
+				//			printf("    rx %d -> total %d\n", received, total_rx);
+						}
+					}
+
+
+					if(total_rx != paylen)
+						printf("error horror2  %d != %d\n", total_rx, paylen);
+
+					parse_message(msgid, paylen);
 				}
-
-
-				if(total_rx != paylen)
-					printf("error horror2  %d != %d\n", total_rx, paylen);
-
-				parse_message(msgid, paylen);
 			}
 		}
 
