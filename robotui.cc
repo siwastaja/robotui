@@ -699,6 +699,8 @@ tof_raw_ambient8_t latest_tof_ambients[N_TOF_SENSORS];
 
 float blue_dist = 5000.0;
 
+int tof_raw_alpha = 80;
+
 void draw_tof_dist(sf::RenderWindow& win, int xs, int ys, uint16_t* img, int x_on_screen, int y_on_screen, float scale, bool mir_x, bool mir_y, bool rotated)
 {
 	static uint8_t pix[TOF_XS*TOF_YS*4];
@@ -744,7 +746,7 @@ void draw_tof_dist(sf::RenderWindow& win, int xs, int ys, uint16_t* img, int x_o
 				pix[4*(yy*xs+xx)+1] = g;
 				pix[4*(yy*xs+xx)+2] = b;
 			}
-			pix[4*(yy*xs+xx)+3] = 255;
+			pix[4*(yy*xs+xx)+3] = tof_raw_alpha;
 
 			inx++;
 			if(inx==xs)
@@ -793,7 +795,7 @@ void draw_tof_ampl(sf::RenderWindow& win, int xs, int ys, uint8_t* img, int x_on
 			pix[4*(yy*xs+xx)+0] = pixval;
 			pix[4*(yy*xs+xx)+1] = pixval;
 			pix[4*(yy*xs+xx)+2] = pixval;
-			pix[4*(yy*xs+xx)+3] = 255;
+			pix[4*(yy*xs+xx)+3] = tof_raw_alpha;
 
 			inx++;
 			if(inx==xs)
@@ -998,7 +1000,7 @@ void draw_tof_raws(sf::RenderWindow& win)
 
 	sf::RectangleShape rect(sf::Vector2f( 10*(scale*60.0+4)  + 6, scale*TOF_XS_NARROW+(TOF_XS+TOF_XS_NARROW)*scale+6+scale*TOF_XS +17  +6));
 	rect.setPosition(20-3, 20-20);
-	rect.setFillColor(sf::Color(255,255,255,160));
+	rect.setFillColor(sf::Color(255,255,255,tof_raw_alpha));
 	win.draw(rect);
 
 	for(int ii=0; ii<10; ii++)
@@ -1007,25 +1009,25 @@ void draw_tof_raws(sf::RenderWindow& win)
 		bool mir_y = false;
 		bool rotated = true;
 
-		switch(latest_tof_dists[ii].sensor_orientation)
+	
+		int i = order[ii];
+
+		switch(latest_tof_dists[i].sensor_orientation)
 		{
 			case 1:
 			rotated = true;
 			mir_x = false;
 			mir_y = false;
 			break;
-
 			case 2:
 			rotated = true;
 			mir_x = true;
 			mir_y = true;
-
 			break;
 			case 3:
 			rotated = false;
 			mir_x = false;
 			mir_y = false;
-
 			break;
 			case 4:
 			rotated = false;
@@ -1035,9 +1037,8 @@ void draw_tof_raws(sf::RenderWindow& win)
 			break;
 			default:break;
 		}
-		
 
-		int i = order[ii];
+
 		#if TOGETHER
 			draw_tof_dist_together(win, latest_tof_dists[i].dist, 20+scale*60.0+4, ii*scale*160.0+20, 20, scale, mir_x, mir_y, rotated, latest_tof_dists[i].dist_narrow);
 			draw_tof_ampl_together(win, latest_tof_ampls[i].ampl, 20+scale*60.0+4, ii*scale*160.0+20+2, scale, mir_x, mir_y, rotated, latest_tof_ampls[i].narrow);
@@ -1057,7 +1058,7 @@ void draw_tof_raws(sf::RenderWindow& win)
 			char tbuf[32];
 			sprintf(tbuf, "%u (%u%%)", latest_tof_dists[i].narrow_stray_estimate_adc, (100*latest_tof_dists[i].narrow_stray_estimate_adc+1)/16384);
 			te.setFont(arial);
-			te.setFillColor(sf::Color(255,255,255,255));
+			te.setFillColor(sf::Color(255,255,255,tof_raw_alpha));
 			te.setString(tbuf);
 			te.setCharacterSize(10);
 			te.setPosition(20+scale*((TOF_YS-TOF_YS_NARROW)/2.0) +ii*(scale*60.0+4), 20);
@@ -1071,10 +1072,10 @@ void draw_tof_raws(sf::RenderWindow& win)
 			sprintf(tbuf, "TOF%u", i);
 			te.setString(tbuf);
 			te.setCharacterSize(14);
-			te.setFillColor(sf::Color(0,0,0,255));
+			te.setFillColor(sf::Color(0,0,0,tof_raw_alpha));
 			te.setPosition(20 + scale*20.0 +ii*(scale*60.0+4), 20-17);
 			win.draw(te);
-			te.setFillColor(sf::Color(255,255,255,255));
+			te.setFillColor(sf::Color(255,255,255,tof_raw_alpha));
 			te.setPosition(20 + scale*20.0 +ii*(scale*60.0+4)-1, 20-17-1);
 			win.draw(te);
 
@@ -1192,7 +1193,7 @@ void draw_picture(sf::RenderWindow& win)
 			}
 			else
 			{
-				float blue_dist=5000;
+				float blue_dist=6000;
 				float percolor = blue_dist/3.0;
 
 				float mm = dist;
@@ -1302,8 +1303,8 @@ void draw_robot(sf::RenderWindow& win)
 
 	r.setFillColor(sf::Color(200,90,50,160));
 
-	r.setRotation(cur_angle);
-	r.setPosition((cur_x+origin_x)/mm_per_pixel,(cur_y+origin_y)/mm_per_pixel);
+	r.setRotation(-1.0*cur_angle);
+	r.setPosition((cur_x+origin_x)/mm_per_pixel,(-1.0*cur_y+origin_y)/mm_per_pixel);
 
 	win.draw(r);
 
@@ -1569,6 +1570,7 @@ static uint8_t* rxbuf;
 
 #define MAX_ACCEPTED_MSG_PAYLEN 16777215
 
+int tof_raws_came;
 
 void print_test_msg1(void* m)
 {
@@ -1595,6 +1597,7 @@ void print_tof_raw_dist(void* m)
 	}
 
 	memcpy(&latest_tof_dists[idx], m, sizeof latest_tof_dists[0]);
+	tof_raws_came = 0;
 }
 void print_tof_raw_ampl8(void* m)
 {
@@ -1607,6 +1610,7 @@ void print_tof_raw_ampl8(void* m)
 	}
 
 	memcpy(&latest_tof_ampls[idx], m, sizeof latest_tof_ampls[0]);
+	tof_raws_came = 0;
 
 }
 
@@ -1621,6 +1625,8 @@ void print_tof_raw_ambient8(void* m)
 	}
 
 	memcpy(&latest_tof_ambients[idx], m, sizeof latest_tof_ambients[0]);
+	tof_raws_came = 0;
+
 }
 
 void print_tof_diagnostics(void* m)
@@ -1629,6 +1635,17 @@ void print_tof_diagnostics(void* m)
 
 void print_tof_raw_img(void* m)
 {
+}
+
+void print_hw_pose(void* m)
+{
+	hw_pose_t *mm = m;
+
+	printf("HW pose  ang=%5.1f deg  x=%8d mm  y=%8d mm\n", ANG32TOFDEG(mm->ang), mm->x, mm->y);
+
+	cur_angle = ANG32TOFDEG(mm->ang);
+	cur_x = mm->x;
+	cur_y = mm->y;
 }
 
 /*
@@ -2638,7 +2655,11 @@ int main(int argc, char** argv)
 
 		#endif
 
-		draw_tof_raws(win);
+		if(tof_raws_came < 45)
+		{
+			draw_tof_raws(win);
+		}
+		tof_raws_came++;
 
 		win.display();
 
