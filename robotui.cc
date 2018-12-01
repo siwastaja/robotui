@@ -100,8 +100,8 @@ click_mode_t click_mode;
 double dest_x, dest_y;
 click_mode_t dest_type = MODE_INVALID;
 
-double robot_xs = 480.0;
-double robot_ys = 524.0;
+double robot_xs = 650.0;
+double robot_ys = 460.0;
 double lidar_xoffs = 120.0;
 double lidar_yoffs = 0.0;
 
@@ -307,7 +307,7 @@ void dev_draw_circle(sf::RenderWindow& win, int unit_x, int unit_y, int r, int g
 
 	}
 
-	circ.setPosition((x_mm+origin_x+MAP_UNIT_W/2)/mm_per_pixel,(y_mm+origin_y+MAP_UNIT_W/2)/mm_per_pixel);
+	circ.setPosition((x_mm+origin_x+MAP_UNIT_W/2)/mm_per_pixel,(-1*y_mm+origin_y+MAP_UNIT_W/2)/mm_per_pixel);
 	win.draw(circ);
 
 	if(dir >= 0)
@@ -322,7 +322,7 @@ void dev_draw_circle(sf::RenderWindow& win, int unit_x, int unit_y, int r, int g
 		arrow.setFillColor(sf::Color((r/2),(g/2),(b/2)));
 
 		arrow.setRotation((float)dir*(360.0/32.0));
-		arrow.setPosition((x_mm+origin_x+MAP_UNIT_W/2)/mm_per_pixel,(y_mm+origin_y+MAP_UNIT_W/2)/mm_per_pixel);
+		arrow.setPosition((x_mm+origin_x+MAP_UNIT_W/2)/mm_per_pixel,(-1*y_mm+origin_y+MAP_UNIT_W/2)/mm_per_pixel);
 		win.draw(arrow);
 	}
 
@@ -362,17 +362,17 @@ void draw_route_mm(sf::RenderWindow& win, route_unit_t **route)
 		if(first)
 		{
 			x1 = (route_start_x+origin_x)/mm_per_pixel;
-			y1 = (route_start_y+origin_y)/mm_per_pixel;
+			y1 = (-1*route_start_y+origin_y)/mm_per_pixel;
 			first = 0;
 		}
 		else
 		{
 			x1 = (prev->loc.x+origin_x)/mm_per_pixel;
-			y1 = (prev->loc.y+origin_y)/mm_per_pixel;
+			y1 = (-1*prev->loc.y+origin_y)/mm_per_pixel;
 		}
 
 		x2 = (rt->loc.x+origin_x)/mm_per_pixel;
-		y2 = (rt->loc.y+origin_y)/mm_per_pixel;
+		y2 = (-1*rt->loc.y+origin_y)/mm_per_pixel;
 		sf::RectangleShape rect(sf::Vector2f( sqrt(pow(x2-x1,2)+pow(y2-y1,2)), 6.0));
 		rect.setOrigin(0, 3.0);
 		rect.setPosition(x1, y1);
@@ -573,8 +573,10 @@ void draw_bat_status(sf::RenderWindow& win)
 	float vlevel = (float)latest_pwr.bat_percent/100.0;
 	int r = (1.0-vlevel)*250.0;
 	int g = vlevel*250.0;
-	if(r > 250) r = 250; if(r<0) r=0;
-	if(g > 250) g = 250; if(g<0) g=0;
+	if(r > 250) r = 250;
+	if(r<0) r=0;
+	if(g > 250) g = 250;
+	if(g<0) g=0;
 	t.setFillColor(sf::Color(r,g,0));
 	t.setPosition(screen_x-180,screen_y-45);
 	win.draw(t);
@@ -661,7 +663,7 @@ void draw_texts(sf::RenderWindow& win)
 		circ.setFillColor(sf::Color(dbgpoint_r,dbgpoint_g,dbgpoint_b, 180));
 		circ.setOutlineColor(sf::Color(255,255,255,255));
 
-		circ.setPosition((dbgpoint_x+origin_x)/mm_per_pixel,(dbgpoint_y+origin_y)/mm_per_pixel);
+		circ.setPosition((dbgpoint_x+origin_x)/mm_per_pixel,(-1*dbgpoint_y+origin_y)/mm_per_pixel);
 		win.draw(circ);
 	}
 
@@ -673,7 +675,7 @@ void draw_texts(sf::RenderWindow& win)
 		circ.setFillColor(sf::Color(pers_dbgpoint_r[i],pers_dbgpoint_g[i],pers_dbgpoint_b[i], 120));
 		circ.setOutlineColor(sf::Color(0,0,0,150));
 
-		circ.setPosition((pers_dbgpoint_x[i]+origin_x)/mm_per_pixel,(pers_dbgpoint_y[i]+origin_y)/mm_per_pixel);
+		circ.setPosition((pers_dbgpoint_x[i]+origin_x)/mm_per_pixel,(-1*pers_dbgpoint_y[i]+origin_y)/mm_per_pixel);
 		win.draw(circ);
 
 	}
@@ -697,9 +699,9 @@ tof_raw_ambient8_t latest_tof_ambients[N_TOF_SENSORS];
 #define DATA_LOW 65534
 #define DATA_OVEREXP 65535
 
-float blue_dist = 5000.0;
+float blue_dist = 6000.0;
 
-int tof_raw_alpha = 80;
+int tof_raw_alpha = 255; //80;
 
 void draw_tof_dist(sf::RenderWindow& win, int xs, int ys, uint16_t* img, int x_on_screen, int y_on_screen, float scale, bool mir_x, bool mir_y, bool rotated)
 {
@@ -1280,7 +1282,7 @@ void draw_map(sf::RenderWindow& win)
 			if(world.pages[x][y])
 			{
 				int startx = -MAP_MIDDLE_UNIT*MAP_UNIT_W + x*MAP_PAGE_W*MAP_UNIT_W + origin_x;
-				int starty = -MAP_MIDDLE_UNIT*MAP_UNIT_W + y*MAP_PAGE_W*MAP_UNIT_W + origin_y;
+				int starty = -MAP_MIDDLE_UNIT*MAP_UNIT_W + -1*y*MAP_PAGE_W*MAP_UNIT_W + origin_y;
 				draw_page(win, world.pages[x][y], startx, starty);
 			}
 		}
@@ -1317,14 +1319,14 @@ void draw_robot(sf::RenderWindow& win)
 		circ.setFillColor(click_mode_colors[static_cast<int>(dest_type)]);
 		circ.setOutlineThickness(1.0);
 		circ.setOutlineColor(sf::Color(0,0,0,100));
-		circ.setPosition((dest_x+origin_x)/mm_per_pixel,(dest_y+origin_y)/mm_per_pixel);
+		circ.setPosition((dest_x+origin_x)/mm_per_pixel,(-1*dest_y+origin_y)/mm_per_pixel);
 		win.draw(circ);
 		sf::CircleShape circ2(robot_mark_radius2/mm_per_pixel);
 		circ2.setOrigin(robot_mark_radius2/(mm_per_pixel), robot_mark_radius2/(mm_per_pixel));
 		circ2.setFillColor(click_mode_colors[static_cast<int>(dest_type)]);
 		circ2.setOutlineThickness(1.0);
 		circ2.setOutlineColor(sf::Color(0,0,0,150));
-		circ2.setPosition((dest_x+origin_x)/mm_per_pixel,(dest_y+origin_y)/mm_per_pixel);
+		circ2.setPosition((dest_x+origin_x)/mm_per_pixel,(-1*dest_y+origin_y)/mm_per_pixel);
 		win.draw(circ2);
 
 		if(dest_type == MODE_ADDCONSTRAINT || dest_type == MODE_REMCONSTRAINT)
@@ -1443,10 +1445,205 @@ void draw_tof3d_hmap(sf::RenderWindow& win, client_tof3d_hmap_t* hm)
 	sprite.setTexture(t);
 	sprite.setOrigin(hm->xsamples/2.0, hm->ysamples/2.0);
 	sprite.setRotation(ang);
-	sprite.setPosition((hm->robot_pos.x+origin_x)/mm_per_pixel, (hm->robot_pos.y+origin_y)/mm_per_pixel);
+	sprite.setPosition((hm->robot_pos.x+origin_x)/mm_per_pixel, (-1*hm->robot_pos.y+origin_y)/mm_per_pixel);
 	sprite.setScale(sf::Vector2f(scale, scale));
 	sprite.setColor(sf::Color(255,255,255,hmap_alpha_mult));
 	win.draw(sprite);
+
+}
+
+#define VOX_SEG_XS 100
+#define VOX_SEG_YS 100
+#define VOX_HIRES_UNIT 50 // mm
+#define VOX_LORES_UNIT 100 // mm
+
+typedef struct __attribute__((packed))
+{
+	uint16_t segs[12][VOX_SEG_XS*VOX_SEG_YS];
+} full_voxel_map_t;
+
+full_voxel_map_t latest_voxmap;
+
+float offset_z = 400.0;
+float blue_z = 1200.0;
+
+int cur_slice = 0;
+
+#define VOXMAP_ALPHA 255
+static const uint32_t voxmap_blank_color = RGBA32(0UL,  0UL, 0UL, VOXMAP_ALPHA);
+
+static const uint32_t voxmap_colors[16] = {
+/* 0           */ RGBA32(255UL,  0UL,255UL, VOXMAP_ALPHA),
+/* 1           */ RGBA32(150UL,  0UL,255UL, VOXMAP_ALPHA),
+/* 2           */ RGBA32(120UL,120UL,255UL, VOXMAP_ALPHA),
+/* 3           */ RGBA32(  0UL,100UL,255UL, VOXMAP_ALPHA),
+/* 4           */ RGBA32(  0UL,130UL,200UL, VOXMAP_ALPHA),
+/* 5           */ RGBA32(  0UL,160UL,160UL, VOXMAP_ALPHA),
+/* 6           */ RGBA32(  0UL,200UL,130UL, VOXMAP_ALPHA),
+/* 7           */ RGBA32(  0UL,220UL, 70UL, VOXMAP_ALPHA),
+/* 8           */ RGBA32(  0UL,250UL,  0UL, VOXMAP_ALPHA),
+/* 9           */ RGBA32( 50UL,220UL,  0UL, VOXMAP_ALPHA),
+/* 10          */ RGBA32( 90UL,190UL,  0UL, VOXMAP_ALPHA),
+/* 11          */ RGBA32(120UL,150UL,  0UL, VOXMAP_ALPHA),
+/* 12          */ RGBA32(150UL,120UL,  0UL, VOXMAP_ALPHA),
+/* 13          */ RGBA32(190UL, 90UL,  0UL, VOXMAP_ALPHA),
+/* 14          */ RGBA32(220UL, 50UL,  0UL, VOXMAP_ALPHA),
+/* 15          */ RGBA32(250UL,  0UL,  0UL, VOXMAP_ALPHA),
+};
+
+
+typedef struct
+{
+	int xmin;
+	int xmax;
+	int ymin;
+	int ymax;
+	int reso;
+} seg_limits_t;
+
+const seg_limits_t seg_lims[12] =
+{
+	{	// Seg 0
+		0, VOX_SEG_XS*VOX_HIRES_UNIT-1,
+		0, VOX_SEG_YS*VOX_HIRES_UNIT-1,
+		VOX_HIRES_UNIT
+	},
+
+	{	// Seg 1
+		-VOX_SEG_XS*VOX_HIRES_UNIT, -1,
+		0, VOX_SEG_YS*VOX_HIRES_UNIT-1,
+		VOX_HIRES_UNIT
+	},
+
+	{	// Seg 2
+		-VOX_SEG_XS*VOX_HIRES_UNIT, -1,
+		-VOX_SEG_YS*VOX_HIRES_UNIT, -1,
+		VOX_HIRES_UNIT
+	},
+
+	{	// Seg 3
+		0, VOX_SEG_XS*VOX_HIRES_UNIT-1,
+		-VOX_SEG_YS*VOX_HIRES_UNIT, -1,
+		VOX_HIRES_UNIT
+	},
+
+	{	// Seg 4
+		VOX_SEG_XS*VOX_HIRES_UNIT, VOX_SEG_XS*VOX_HIRES_UNIT + VOX_SEG_XS*VOX_LORES_UNIT-1,
+		-VOX_SEG_YS*VOX_HIRES_UNIT, VOX_SEG_YS*VOX_HIRES_UNIT-1,
+		VOX_LORES_UNIT
+	},
+
+	{	// Seg 5
+		VOX_SEG_XS*VOX_HIRES_UNIT, VOX_SEG_XS*VOX_HIRES_UNIT + VOX_SEG_XS*VOX_LORES_UNIT-1,
+		VOX_SEG_YS*VOX_HIRES_UNIT, VOX_SEG_YS*VOX_HIRES_UNIT + VOX_SEG_YS*VOX_LORES_UNIT-1,
+		VOX_LORES_UNIT
+	},
+
+	{	// Seg 6
+		-VOX_SEG_XS*VOX_HIRES_UNIT, VOX_SEG_XS*VOX_HIRES_UNIT-1,
+		VOX_SEG_YS*VOX_HIRES_UNIT, VOX_SEG_YS*VOX_HIRES_UNIT + VOX_SEG_YS*VOX_LORES_UNIT-1,
+		VOX_LORES_UNIT
+	},
+
+	{	// Seg 7
+		-VOX_SEG_XS*VOX_HIRES_UNIT - VOX_SEG_XS*VOX_LORES_UNIT, -VOX_SEG_XS*VOX_HIRES_UNIT-1,
+		VOX_SEG_YS*VOX_HIRES_UNIT, VOX_SEG_YS*VOX_HIRES_UNIT + VOX_SEG_YS*VOX_LORES_UNIT-1,
+		VOX_LORES_UNIT
+	},
+
+	{	// Seg 8
+		-VOX_SEG_XS*VOX_HIRES_UNIT - VOX_SEG_XS*VOX_LORES_UNIT, -VOX_SEG_XS*VOX_HIRES_UNIT-1,
+		-VOX_SEG_YS*VOX_HIRES_UNIT, VOX_SEG_YS*VOX_HIRES_UNIT-1,
+		VOX_LORES_UNIT
+	},
+
+	{	// Seg 9
+		-VOX_SEG_XS*VOX_HIRES_UNIT - VOX_SEG_XS*VOX_LORES_UNIT, -VOX_SEG_XS*VOX_HIRES_UNIT-1,
+		-VOX_SEG_YS*VOX_HIRES_UNIT-VOX_SEG_YS*VOX_LORES_UNIT, -VOX_SEG_YS*VOX_HIRES_UNIT-1,
+		VOX_LORES_UNIT
+	},
+
+	{	// Seg 10
+		-VOX_SEG_XS*VOX_HIRES_UNIT, VOX_SEG_XS*VOX_HIRES_UNIT-1,
+		-VOX_SEG_YS*VOX_HIRES_UNIT-VOX_SEG_YS*VOX_LORES_UNIT, -VOX_SEG_YS*VOX_HIRES_UNIT-1,
+		VOX_LORES_UNIT
+	},
+
+	{	// Seg 11
+		VOX_SEG_XS*VOX_HIRES_UNIT, VOX_SEG_XS*VOX_HIRES_UNIT + VOX_SEG_XS*VOX_LORES_UNIT-1,
+		-VOX_SEG_YS*VOX_HIRES_UNIT-VOX_SEG_YS*VOX_LORES_UNIT, -VOX_SEG_YS*VOX_HIRES_UNIT-1,
+		VOX_LORES_UNIT
+	}
+
+};
+
+
+void draw_voxmap_seg(sf::RenderWindow& win, uint16_t* map, int xoffs_mm, int yoffs_mm, int reso)
+{
+	const int xs = 100;
+	const int ys = 100;
+
+	static uint32_t pixels[100*100];
+
+	float scale = (float)reso/mm_per_pixel;
+
+	for(int yy=0; yy < ys; yy++)
+	{
+		for(int xx=0; xx < xs; xx++)
+		{
+			uint16_t val = map[yy*xs+xx];
+			/* really one at once:
+			if(val&(1<<cur_slice))
+				pixels[yy*xs+xx] = voxmap_colors[cur_slice];
+			else
+				pixels[yy*xs+xx] = voxmap_blank_color;
+			*/
+
+			pixels[(ys-1-yy)*xs+xx] = voxmap_blank_color;
+			for(int slice = 0; slice<cur_slice; slice++)
+			{
+				if(val&(1<<slice))
+					pixels[(ys-1-yy)*xs+xx] = voxmap_colors[slice];
+			}
+
+		}
+	}
+
+	float ang = 0;
+
+//	printf("xoffs_mm = %d,  yoffs_mm = %d,  reso = %d\n", xoffs_mm, yoffs_mm, reso);
+
+	sf::Texture t;
+	t.create(xs,ys);
+	t.setSmooth(false);
+	t.update((uint8_t*)pixels);
+	sf::Sprite sprite;
+	sprite.setTexture(t);
+	sprite.setOrigin(0, ys-0);
+	sprite.setRotation(ang);
+	sprite.setPosition((xoffs_mm+origin_x)/mm_per_pixel, (-1*yoffs_mm+origin_y)/mm_per_pixel);
+	sprite.setScale(sf::Vector2f(scale, scale));
+	sprite.setColor(sf::Color(255,255,255,255));
+	win.draw(sprite);
+
+}
+
+void draw_voxmap(sf::RenderWindow& win)
+{
+	for(int seg=0; seg<12; seg++)
+	{
+		draw_voxmap_seg(win, latest_voxmap.segs[seg],0+seg_lims[seg].xmin, 0+seg_lims[seg].ymin, (seg<4)?50:100);
+	}
+
+
+	static int cnt = 0;
+	cnt++;
+	if((cur_slice < 15 && cnt >= 2) || (cnt >= 10))
+	{
+		cnt = 0;
+		cur_slice++;
+		if(cur_slice > 15) cur_slice = 1;
+	}
 
 }
 
@@ -1456,7 +1653,7 @@ void draw_lidar(sf::RenderWindow& win, client_lidar_scan_t* lid)
 	{
 		sf::RectangleShape rect(sf::Vector2f(3,3));
 		rect.setOrigin(1.5,1.5);
-		rect.setPosition((lid->scan[i].x+origin_x)/mm_per_pixel, (lid->scan[i].y+origin_y)/mm_per_pixel);
+		rect.setPosition((lid->scan[i].x+origin_x)/mm_per_pixel, (-1*lid->scan[i].y+origin_y)/mm_per_pixel);
 		rect.setFillColor(sf::Color(255, 0, 0, 100));
 		win.draw(rect);
 	}
@@ -1471,7 +1668,7 @@ void draw_sonar(sf::RenderWindow& win)
 
 		sf::RectangleShape rect(sf::Vector2f(6,6));
 		rect.setOrigin(3,3);
-		rect.setPosition((sonar[i].x+origin_x)/mm_per_pixel, (sonar[i].y+origin_y)/mm_per_pixel);
+		rect.setPosition((sonar[i].x+origin_x)/mm_per_pixel, (-1*sonar[i].y+origin_y)/mm_per_pixel);
 		rect.setFillColor(sf::Color(50,50,200));
 		win.draw(rect);
 
@@ -1484,7 +1681,7 @@ void draw_sonar(sf::RenderWindow& win)
 		t.setFillColor(sf::Color(0,0,0,255));
 		t.setString(tbuf);
 		t.setCharacterSize(9);
-		t.setPosition((sonar[i].x+origin_x)/mm_per_pixel, (sonar[i].y+origin_y)/mm_per_pixel);
+		t.setPosition((sonar[i].x+origin_x)/mm_per_pixel, (-1*sonar[i].y+origin_y)/mm_per_pixel);
 		win.draw(t);
 
 		#endif
@@ -1581,6 +1778,8 @@ void print_test_msg2(void* m)
 void print_test_msg3(void* m)
 {
 }
+
+
 void print_pwr_status(void* m)
 {
 	memcpy(&latest_pwr, m, sizeof latest_pwr);
@@ -1646,6 +1845,26 @@ void print_hw_pose(void* m)
 	cur_angle = ANG32TOFDEG(mm->ang);
 	cur_x = mm->x;
 	cur_y = mm->y;
+}
+
+void print_drive_diag(void* m)
+{
+}
+
+void print_mcu_voxel_map(void* m)
+{
+	mcu_voxel_map_t *mm = m;
+
+	int id = mm->block_id;
+
+	printf("Voxel map block %u  z_step %u  base_z %d\n", id, mm->z_step, mm->base_z);
+
+	if(id < 0 || id > 12)
+	{
+		printf("Invalid vox map block id %d\n", id);
+		return;
+	}
+	memcpy(latest_voxmap.segs[id], mm->map, sizeof(latest_voxmap.segs[0]));
 }
 
 /*
@@ -1956,8 +2175,21 @@ int main(int argc, char** argv)
 	bool return_pressed = false;
 	int focus = 1;
 	int online = 1;
-
-
+	for(int i=0; i<0; i++)
+	{
+		latest_voxmap.segs[0][i] = 1;
+		latest_voxmap.segs[1][i] = 2;
+		latest_voxmap.segs[2][i] = 4;
+		latest_voxmap.segs[3][i] = 8;
+		latest_voxmap.segs[4][i] = 16;
+		latest_voxmap.segs[5][i] = 32;
+		latest_voxmap.segs[6][i] = 64;
+		latest_voxmap.segs[7][i] = 128;
+		latest_voxmap.segs[8][i] = 256;
+		latest_voxmap.segs[9][i] = 512;
+		latest_voxmap.segs[10][i] = 1024;
+		latest_voxmap.segs[11][i] = 2048;
+	}
 	if(argc != 3)
 	{
 		printf("Usage: rn1client addr port\n");
@@ -1997,7 +2229,7 @@ int main(int argc, char** argv)
 	sf::ContextSettings sets;
 	sets.antialiasingLevel = 8;
 	sf::RenderWindow win(sf::VideoMode(screen_x,screen_y), "PULUROBOT SLAM", sf::Style::Default, sets);
-	win.setFramerateLimit(7);
+	win.setFramerateLimit(15);
 
 	sf::Texture decors[NUM_DECORS];
 
@@ -2303,7 +2535,7 @@ int main(int argc, char** argv)
 			else if(localPosition.x > 10 && localPosition.x < screen_x-10 && localPosition.y > 10 && localPosition.y < screen_y-10)
 			{
 				click_x = (localPosition.x * mm_per_pixel) - origin_x;
-				click_y = (localPosition.y * mm_per_pixel) - origin_y;
+				click_y = (-1*localPosition.y * mm_per_pixel) + origin_y;
 
 				if(sf::Mouse::isButtonPressed(sf::Mouse::Left))
 				{
@@ -2449,7 +2681,7 @@ int main(int argc, char** argv)
 					if(right_click_on)
 					{
 						double dx = click_x - prev_click_x; double dy = click_y - prev_click_y;
-						origin_x += dx; origin_y += dy;
+						origin_x += dx; origin_y -= dy;
 					}
 					else
 					{
@@ -2589,6 +2821,8 @@ int main(int argc, char** argv)
 
 		draw_map(win);
 
+		draw_voxmap(win);
+
 		draw_robot(win);
 
 		draw_lidar(win, &lidar);
@@ -2660,6 +2894,7 @@ int main(int argc, char** argv)
 			draw_tof_raws(win);
 		}
 		tof_raws_came++;
+
 
 		win.display();
 
