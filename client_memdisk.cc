@@ -25,7 +25,7 @@
 #include <errno.h>
 #include <dirent.h>
 
-#include "../rn1-host/mapping.h"
+#include "../robotsoft/mapping.h"
 #include "client_memdisk.h"
 
 extern uint32_t robot_id;

@@ -42,6 +42,12 @@
 #include <SFML/Graphics.hpp>
 #include <SFML/Network.hpp>
 
+
+#define DEFINE_API_VARIABLES
+#include "../robotsoft/api_board_to_soft.h"
+#include "../robotsoft/api_soft_to_board.h"
+#undef DEFINE_API_VARIABLES
+
 #include "../robotsoft/mapping.h"
 #include "../robotsoft/datatypes.h"
 #include "../rn1-brain/comm.h"
@@ -50,10 +56,6 @@
 #include "utlist.h"
 #include "sfml_gui.h"
 
-#define DEFINE_API_VARIABLES
-#include "../robotsoft/api_board_to_soft.h"
-#include "../robotsoft/api_soft_to_board.h"
-#undef DEFINE_API_VARIABLES
 
 #define I16FROMBUF(b_, s_)  ( ((uint16_t)b_[(s_)+0]<<8) | ((uint16_t)b_[(s_)+1]<<0) )
 #define I32FROMBUF(b_, s_)  ( ((uint32_t)b_[(s_)+0]<<24) | ((uint32_t)b_[(s_)+1]<<16) | ((uint32_t)b_[(s_)+2]<<8) | ((uint32_t)b_[(s_)+3]<<0) )
@@ -79,10 +81,14 @@ int screen_y = 700;
 
 double click_x, click_y;
 
+double mm_per_pixel = 10.0;
 double origin_x = 0;
 double origin_y = 0;
 
+
 double cur_angle = 0.0;
+double cur_pitch = 0.0;
+double cur_roll = 0.0;
 double cur_x = 0.0;
 double cur_y = 0.0;
 
@@ -105,6 +111,42 @@ double robot_ys = 460.0;
 double lidar_xoffs = 120.0;
 double lidar_yoffs = 0.0;
 
+
+#define RGBA32(r_,g_,b_,a_)  ((r_) | ((g_)<<8) | ((b_)<<16) | ((a_)<<24))
+
+
+float offset_z = 400.0;
+float blue_z = 1200.0;
+
+int cur_slice = 0;
+int max_voxmap_alpha = 200;
+int voxmap_alpha;
+
+
+#define VOXMAP_ALPHA 255
+static const uint32_t voxmap_blank_color = RGBA32(0UL,  0UL, 0UL, 50UL);
+
+static const uint32_t voxmap_colors[16] = {
+/* 0           */ RGBA32(255UL,  0UL,255UL, VOXMAP_ALPHA),
+/* 1           */ RGBA32(150UL,  0UL,255UL, VOXMAP_ALPHA),
+/* 2           */ RGBA32(120UL,120UL,255UL, VOXMAP_ALPHA),
+/* 3           */ RGBA32(  0UL,100UL,255UL, VOXMAP_ALPHA),
+/* 4           */ RGBA32(  0UL,130UL,200UL, VOXMAP_ALPHA),
+/* 5           */ RGBA32(  0UL,160UL,160UL, VOXMAP_ALPHA),
+/* 6           */ RGBA32(  0UL,200UL,130UL, VOXMAP_ALPHA),
+/* 7           */ RGBA32(  0UL,220UL, 70UL, VOXMAP_ALPHA),
+/* 8           */ RGBA32(  0UL,250UL,  0UL, VOXMAP_ALPHA),
+/* 9           */ RGBA32( 50UL,220UL,  0UL, VOXMAP_ALPHA),
+/* 10          */ RGBA32( 90UL,190UL,  0UL, VOXMAP_ALPHA),
+/* 11          */ RGBA32(120UL,150UL,  0UL, VOXMAP_ALPHA),
+/* 12          */ RGBA32(150UL,120UL,  0UL, VOXMAP_ALPHA),
+/* 13          */ RGBA32(190UL, 90UL,  0UL, VOXMAP_ALPHA),
+/* 14          */ RGBA32(220UL, 50UL,  0UL, VOXMAP_ALPHA),
+/* 15          */ RGBA32(250UL,  0UL,  0UL, VOXMAP_ALPHA),
+};
+
+
+
 int charging;
 int charge_finished;
 float bat_voltage;
@@ -119,9 +161,9 @@ void print_cur_cmd_status(sf::RenderWindow& win)
 	t.setFont(arial);
 	switch(cur_cmd_status)
 	{
-		case 55: sprintf(tbu, "Working on: Direct (manual) move"); break;
-		case 56: sprintf(tbu, "Working on: Routefinding"); break;
-		case 57: sprintf(tbu, "Working on: Finding the charger"); break;
+		case 355: sprintf(tbu, "Working on: Direct (manual) move"); break;
+		case 356: sprintf(tbu, "Working on: Routefinding"); break;
+		case 357: sprintf(tbu, "Working on: Finding the charger"); break;
 		default: sprintf(tbu, "State bar"); break;
 	}
 
@@ -270,9 +312,6 @@ void page_coords_from_unit_coords(int unit_x, int unit_y, int* pageidx_x, int* p
 }
 
 
-double mm_per_pixel = 10.0;
-
-
 typedef struct
 {
 	int x;
@@ -393,116 +432,34 @@ void draw_page(sf::RenderWindow& win, map_page_t* page, int startx, int starty)
 	if(!page)
 		return;
 
-	static uint8_t pixels[MAP_PAGE_W*MAP_PAGE_W*4];
+	static uint32_t pixels[MAP_PAGE_W*MAP_PAGE_W];
 
 	for(int x = 0; x < MAP_PAGE_W; x++)
 	{
 		for(int y = 0; y < MAP_PAGE_W; y++)
 		{
-			if(page->units[x][y].constraints & CONSTRAINT_FORBIDDEN)
+			if(page->meta[(y/2)*MAP_PAGE_W+(x/2)].constraints & CONSTRAINT_FORBIDDEN)
 			{
-				pixels[4*(y*MAP_PAGE_W+x)+0] = 255;
-				pixels[4*(y*MAP_PAGE_W+x)+1] = 110;
-				pixels[4*(y*MAP_PAGE_W+x)+2] = 190;
-				pixels[4*(y*MAP_PAGE_W+x)+3] = 255;
 			}
 			else
 			{
-//				int alpha = (30*(int)page->units[x][y].num_seen)/3 + (255/3);
-//				int alpha = (2*(int)page->units[x][y].num_seen) + (255/6);
-				int alpha = (8*(int)page->units[x][y].num_seen) + (255/2);
+				int alpha = 255;
 				if(alpha > 255) alpha=255;
-				if(page->units[x][y].result & UNIT_DBG)
-				{
-					pixels[4*(y*MAP_PAGE_W+x)+0] = 255;
-					pixels[4*(y*MAP_PAGE_W+x)+1] = 255;
-					pixels[4*(y*MAP_PAGE_W+x)+2] = 0;
-					pixels[4*(y*MAP_PAGE_W+x)+3] = 255;
-				}
-/*				else if(page->units[x][y].result & UNIT_ITEM)
-				{
-					pixels[4*(y*MAP_PAGE_W+x)+0] = 0;
-					pixels[4*(y*MAP_PAGE_W+x)+1] = 0;
-					pixels[4*(y*MAP_PAGE_W+x)+2] = 255;
-					pixels[4*(y*MAP_PAGE_W+x)+3] = 255;
-				}*/
-				else if(page->units[x][y].result & UNIT_INVISIBLE_WALL)
-				{
-					pixels[4*(y*MAP_PAGE_W+x)+0] = 200;
-					pixels[4*(y*MAP_PAGE_W+x)+1] = 0;
-					pixels[4*(y*MAP_PAGE_W+x)+2] = 0;
-					pixels[4*(y*MAP_PAGE_W+x)+3] = 255; //alpha;
-				}
-				else if(page->units[x][y].num_obstacles)
-				{
-					int lvl = WALL_LEVEL(page->units[x][y]);
-					if(lvl > 170) lvl = 170;
-					int color = 170 - lvl;
-					if(!(page->units[x][y].result & UNIT_WALL))
-					{
-						color = 255;
-					}
-
-					pixels[4*(y*MAP_PAGE_W+x)+0] = color;
-					pixels[4*(y*MAP_PAGE_W+x)+1] = color;
-					pixels[4*(y*MAP_PAGE_W+x)+2] = color;
-					pixels[4*(y*MAP_PAGE_W+x)+3] = alpha;
-				}
-				else if(page->units[x][y].result & UNIT_MAPPED)
-				{
-					pixels[4*(y*MAP_PAGE_W+x)+0] = 255;
-					pixels[4*(y*MAP_PAGE_W+x)+1] = 240 - sqrt(page->units[x][y].num_visited*150);
-					pixels[4*(y*MAP_PAGE_W+x)+2] = 190;
-					pixels[4*(y*MAP_PAGE_W+x)+3] = alpha;
-				}
+				uint64_t val = page->voxmap[y*MAP_PAGE_W+x];
+				/* really one at once:
+				if(val&(1<<cur_slice))
+					pixels[yy*xs+xx] = voxmap_colors[cur_slice];
 				else
+					pixels[yy*xs+xx] = voxmap_blank_color;
+				*/
+
+				pixels[(MAP_PAGE_W-1-y)*MAP_PAGE_W+x] = voxmap_blank_color;
+				for(int slice = 0; slice<cur_slice; slice++)
 				{
-					pixels[4*(y*MAP_PAGE_W+x)+0] = 230;
-					pixels[4*(y*MAP_PAGE_W+x)+1] = 230;
-					pixels[4*(y*MAP_PAGE_W+x)+2] = 230;
-					pixels[4*(y*MAP_PAGE_W+x)+3] = 255;
+					if(val&(1<<slice))
+						pixels[(MAP_PAGE_W-1-y)*MAP_PAGE_W+x] = voxmap_colors[slice];
 				}
 
-#define PIX_MINUS(what_, how_) do{ int t_ = (what_) - (how_); if(t_ < 0) t_ = 0; (what_) = t_;} while(0);
-#define PIX_PLUS(what_, how_) do{ int t_ = (what_) + (how_); if(t_ > 255) t_ = 255; (what_) = t_;} while(0);
-
-				if(!(page->units[x][y].result & UNIT_INVISIBLE_WALL))
-				{
-					if(page->units[x][y].result & UNIT_3D_WALL)
-					{
-//						pixels[4*(y*MAP_PAGE_W+x)+0] >>= 1;
-//						pixels[4*(y*MAP_PAGE_W+x)+1] >>= 0;
-//						pixels[4*(y*MAP_PAGE_W+x)+2] >>= 1;
-						PIX_PLUS(pixels[4*(y*MAP_PAGE_W+x)+0], 30);
-						PIX_PLUS(pixels[4*(y*MAP_PAGE_W+x)+1], 30);
-						PIX_MINUS(pixels[4*(y*MAP_PAGE_W+x)+2], 60);
-
-//						int a = pixels[4*(y*MAP_PAGE_W+x)+3]<<1; if(a>255) a=255;
-//						pixels[4*(y*MAP_PAGE_W+x)+3] = a;
-					}
-					else if(page->units[x][y].result & UNIT_DROP)
-					{
-//						pixels[4*(y*MAP_PAGE_W+x)+0] >>= 0;
-//						pixels[4*(y*MAP_PAGE_W+x)+1] >>= 1;
-//						pixels[4*(y*MAP_PAGE_W+x)+2] >>= 0;
-						PIX_PLUS(pixels[4*(y*MAP_PAGE_W+x)+0], 20);
-						PIX_MINUS(pixels[4*(y*MAP_PAGE_W+x)+1], 60);
-						PIX_PLUS(pixels[4*(y*MAP_PAGE_W+x)+2], 30);
-//						int a = pixels[4*(y*MAP_PAGE_W+x)+3]<<1; if(a>255) a=255;
-//						pixels[4*(y*MAP_PAGE_W+x)+3] = a;
-					}
-					else if(page->units[x][y].result & UNIT_ITEM)
-					{
-//						pixels[4*(y*MAP_PAGE_W+x)+0] >>= 0;
-//						pixels[4*(y*MAP_PAGE_W+x)+1] >>= 0;
-//						pixels[4*(y*MAP_PAGE_W+x)+2] >>= 2;
-						PIX_PLUS(pixels[4*(y*MAP_PAGE_W+x)+0], 30);
-						PIX_MINUS(pixels[4*(y*MAP_PAGE_W+x)+1], 30);
-						PIX_MINUS(pixels[4*(y*MAP_PAGE_W+x)+2], 30);
-//						int a = pixels[4*(y*MAP_PAGE_W+x)+3]<<1; if(a>255) a=255;
-//						pixels[4*(y*MAP_PAGE_W+x)+3] = a;
-					}
-				}
 			}
 		}
 	}
@@ -512,8 +469,10 @@ void draw_page(sf::RenderWindow& win, map_page_t* page, int startx, int starty)
 	sf::Texture t;
 	t.create(256, 256);
 	t.setSmooth(false);
-	t.update(pixels);
+	t.update((uint8_t*)pixels);
 	sf::Sprite sprite;
+
+//	sprite.setOrigin(0, 255);
 	sprite.setTexture(t);
 	sprite.setPosition((startx)/mm_per_pixel, (starty)/mm_per_pixel);
 	sprite.setScale(sf::Vector2f(scale, scale));
@@ -624,9 +583,9 @@ void draw_texts(sf::RenderWindow& win)
 	win.draw(rect);
 
 
-	sprintf(buf, "robot: x=%d  y=%d  mm  (ang=%.1f deg)", (int)cur_x, (int)cur_y, cur_angle);
+	sprintf(buf, "robot: x=%d  y=%d  mm  (yaw=%.1f pitch=%.1f roll=%.1f )", (int)cur_x, (int)cur_y, cur_angle, cur_pitch, cur_roll);
 	t.setString(buf);
-	t.setCharacterSize(17);
+	t.setCharacterSize(14);
 	t.setFillColor(sf::Color(0,0,0,160));
 	t.setPosition(screen_x/2-bot_box_xs/2+10,screen_y-51-30);
 	win.draw(t);
@@ -699,7 +658,8 @@ tof_raw_ambient8_t latest_tof_ambients[N_TOF_SENSORS];
 #define DATA_LOW 65534
 #define DATA_OVEREXP 65535
 
-float blue_dist = 6000.0;
+float red_dist  = 0.0;
+float blue_dist = 9000.0;
 
 int tof_raw_alpha = 255; //80;
 
@@ -735,6 +695,7 @@ void draw_tof_dist(sf::RenderWindow& win, int xs, int ys, uint16_t* img, int x_o
 				float percolor = blue_dist/3.0;
 
 				float mm = pixval;
+				mm -= red_dist; if(mm<0.0) mm=0.0;
 				float f_r = 1.0 - fabs(mm-0*percolor)/percolor;
 				float f_g = 1.0 - fabs(mm-1*percolor)/percolor;
 				float f_b = 1.0 - fabs(mm-2*percolor)/percolor;
@@ -794,6 +755,8 @@ void draw_tof_ampl(sf::RenderWindow& win, int xs, int ys, uint8_t* img, int x_on
 		{
 			int pixval;
 			pixval = img[iny*xs+inx];
+			if(dbg_boost) { pixval*=4; pixval+=16; if(pixval>255) pixval=255;}
+
 			pix[4*(yy*xs+xx)+0] = pixval;
 			pix[4*(yy*xs+xx)+1] = pixval;
 			pix[4*(yy*xs+xx)+2] = pixval;
@@ -999,13 +962,15 @@ void draw_tof_raws(sf::RenderWindow& win)
 	float scale = 2.5;
 
 	static const int order[10] = { 5,4,3,2,1,0,9,8,7,6};
+//	static const int order[10] = { 0,1,2,3,4,5,6,7,8,9};
 
-	sf::RectangleShape rect(sf::Vector2f( 10*(scale*60.0+4)  + 6, scale*TOF_XS_NARROW+(TOF_XS+TOF_XS_NARROW)*scale+6+scale*TOF_XS +17  +6));
-	rect.setPosition(20-3, 20-20);
-	rect.setFillColor(sf::Color(255,255,255,tof_raw_alpha));
-	win.draw(rect);
+//	sf::RectangleShape rect(sf::Vector2f( 10*(scale*60.0+4)  + 6, scale*TOF_XS_NARROW+(TOF_XS+TOF_XS_NARROW)*scale+6+scale*TOF_XS +17  +6));
+//	rect.setPosition(20-3, 20-20);
+//	rect.setFillColor(sf::Color(255,255,255,tof_raw_alpha));
+//	win.draw(rect);
 
-	for(int ii=0; ii<10; ii++)
+//	for(int ii=0; ii<10; ii++)
+	for(int ii=0; ii<1; ii++)
 	{
 		bool mir_x = false;
 		bool mir_y = false;
@@ -1018,13 +983,13 @@ void draw_tof_raws(sf::RenderWindow& win)
 		{
 			case 1:
 			rotated = true;
-			mir_x = false;
-			mir_y = false;
+			mir_x = true;
+			mir_y = true;
 			break;
 			case 2:
 			rotated = true;
-			mir_x = true;
-			mir_y = true;
+			mir_x = false;
+			mir_y = false;
 			break;
 			case 3:
 			rotated = false;
@@ -1037,7 +1002,10 @@ void draw_tof_raws(sf::RenderWindow& win)
 			mir_y = false;
 
 			break;
-			default:break;
+			default:
+//			if(i == 0 || i == 1)
+//				printf("Illegal sensor orientation %d\n", latest_tof_dists[i].sensor_orientation);
+			break;
 		}
 
 
@@ -1282,8 +1250,10 @@ void draw_map(sf::RenderWindow& win)
 			if(world.pages[x][y])
 			{
 				int startx = -MAP_MIDDLE_UNIT*MAP_UNIT_W + x*MAP_PAGE_W*MAP_UNIT_W + origin_x;
-				int starty = -MAP_MIDDLE_UNIT*MAP_UNIT_W + -1*y*MAP_PAGE_W*MAP_UNIT_W + origin_y;
-				draw_page(win, world.pages[x][y], startx, starty);
+				int starty = -1*(-MAP_MIDDLE_UNIT*MAP_UNIT_W + (y+1)*MAP_PAGE_W*MAP_UNIT_W) + origin_y;
+
+//				if(x==127 && y==129)
+					draw_page(win, world.pages[x][y], startx, starty);
 			}
 		}
 	}
@@ -1388,7 +1358,6 @@ client_tof3d_hmap_t hmap;
 #define TOF3D_FLOOR          1
 #define TOF3D_UNSEEN         0
 
-#define RGBA32(r_,g_,b_,a_)  ((r_) | ((g_)<<8) | ((b_)<<16) | ((a_)<<24))
 
 static const uint32_t hmap_colors[9] = {
 /* 0 UNSEEN     */ RGBA32(128UL,128UL,128UL, 0),
@@ -1459,37 +1428,11 @@ void draw_tof3d_hmap(sf::RenderWindow& win, client_tof3d_hmap_t* hm)
 
 typedef struct __attribute__((packed))
 {
-	uint16_t segs[12][VOX_SEG_XS*VOX_SEG_YS];
+	mcu_multi_voxel_map_t msgs[4];
 } full_voxel_map_t;
 
 full_voxel_map_t latest_voxmap;
 
-float offset_z = 400.0;
-float blue_z = 1200.0;
-
-int cur_slice = 0;
-
-#define VOXMAP_ALPHA 255
-static const uint32_t voxmap_blank_color = RGBA32(0UL,  0UL, 0UL, VOXMAP_ALPHA);
-
-static const uint32_t voxmap_colors[16] = {
-/* 0           */ RGBA32(255UL,  0UL,255UL, VOXMAP_ALPHA),
-/* 1           */ RGBA32(150UL,  0UL,255UL, VOXMAP_ALPHA),
-/* 2           */ RGBA32(120UL,120UL,255UL, VOXMAP_ALPHA),
-/* 3           */ RGBA32(  0UL,100UL,255UL, VOXMAP_ALPHA),
-/* 4           */ RGBA32(  0UL,130UL,200UL, VOXMAP_ALPHA),
-/* 5           */ RGBA32(  0UL,160UL,160UL, VOXMAP_ALPHA),
-/* 6           */ RGBA32(  0UL,200UL,130UL, VOXMAP_ALPHA),
-/* 7           */ RGBA32(  0UL,220UL, 70UL, VOXMAP_ALPHA),
-/* 8           */ RGBA32(  0UL,250UL,  0UL, VOXMAP_ALPHA),
-/* 9           */ RGBA32( 50UL,220UL,  0UL, VOXMAP_ALPHA),
-/* 10          */ RGBA32( 90UL,190UL,  0UL, VOXMAP_ALPHA),
-/* 11          */ RGBA32(120UL,150UL,  0UL, VOXMAP_ALPHA),
-/* 12          */ RGBA32(150UL,120UL,  0UL, VOXMAP_ALPHA),
-/* 13          */ RGBA32(190UL, 90UL,  0UL, VOXMAP_ALPHA),
-/* 14          */ RGBA32(220UL, 50UL,  0UL, VOXMAP_ALPHA),
-/* 15          */ RGBA32(250UL,  0UL,  0UL, VOXMAP_ALPHA),
-};
 
 
 typedef struct
@@ -1623,28 +1566,34 @@ void draw_voxmap_seg(sf::RenderWindow& win, uint16_t* map, int xoffs_mm, int yof
 	sprite.setRotation(ang);
 	sprite.setPosition((xoffs_mm+origin_x)/mm_per_pixel, (-1*yoffs_mm+origin_y)/mm_per_pixel);
 	sprite.setScale(sf::Vector2f(scale, scale));
-	sprite.setColor(sf::Color(255,255,255,255));
+	sprite.setColor(sf::Color(255,255,255,voxmap_alpha));
 	win.draw(sprite);
 
 }
 
+bool animate_slice = false;
 void draw_voxmap(sf::RenderWindow& win)
 {
 	for(int seg=0; seg<12; seg++)
 	{
-		draw_voxmap_seg(win, latest_voxmap.segs[seg],0+seg_lims[seg].xmin, 0+seg_lims[seg].ymin, (seg<4)?50:100);
+		draw_voxmap_seg(win, latest_voxmap.msgs[seg/3].maps[seg%3],seg_lims[seg].xmin+latest_voxmap.msgs[seg/3].ref_x, seg_lims[seg].ymin+latest_voxmap.msgs[seg/3].ref_y, (seg<4)?50:100);
 	}
 
 
 	static int cnt = 0;
 	cnt++;
-	if((cur_slice < 15 && cnt >= 2) || (cnt >= 10))
-	{
-		cnt = 0;
-		cur_slice++;
-		if(cur_slice > 15) cur_slice = 1;
-	}
 
+	if(animate_slice)
+	{
+		if((cur_slice < 15 && cnt >= 2) || (cnt >= 10))
+		{
+			cnt = 0;
+			cur_slice++;
+			if(cur_slice > 15) cur_slice = 1;
+		}
+	}
+	else
+		cur_slice = 15;
 }
 
 void draw_lidar(sf::RenderWindow& win, client_lidar_scan_t* lid)
@@ -1694,15 +1643,6 @@ unsigned short serv_port;
 
 sf::TcpSocket tcpsock;
 
-void mode_msg(uint8_t mode)
-{
-	uint8_t test[4] = {58 /*MODE*/, 0, 1, mode};
-
-	if(tcpsock.send(test, 4) != sf::Socket::Done)
-	{
-		printf("Send error\n");
-	}
-}
 
 void speedlimit_msg(uint8_t limit)
 {
@@ -1744,18 +1684,36 @@ void maintenance_msg(int restart_mode)
 state_vect_t received_state_vect;
 state_vect_t state_vect_to_send;
 
-void send_state_vect()
-{
-	uint8_t test[3+STATE_VECT_LEN];
-	test[0] = 64;
-	test[1] = ((STATE_VECT_LEN)&0xff00)>>8;
-	test[2] = (STATE_VECT_LEN)&0xff;
-	memcpy(&test[3], state_vect_to_send.table, STATE_VECT_LEN);
+#define SENDBUF_SIZE (128*1024)
 
-	if(tcpsock.send(test, 3+STATE_VECT_LEN) != sf::Socket::Done)
+void send(int msgid, int paylen, uint8_t* buf)
+{
+	static uint8_t sendbuf[SENDBUF_SIZE];
+
+	if(paylen >= SENDBUF_SIZE-5)
+	{
+		printf("Message too long to be sent.\n");
+		return;
+	}
+
+	sendbuf[0] = (msgid&0xff00)>>8;
+	sendbuf[1] = (msgid&0x00ff)>>0;
+	sendbuf[2] = (paylen&0x00ff0000)>>16;
+	sendbuf[3] = (paylen&0x0000ff00)>>8;
+	sendbuf[4] = (paylen&0x000000ff)>>0;
+	memcpy(&sendbuf[5], buf, paylen);
+
+	if(tcpsock.send(sendbuf, 5+paylen) != sf::Socket::Done)
 	{
 		printf("Send error\n");
 	}
+}
+
+void mode_msg(uint8_t mode)
+{
+	uint8_t test[1] = {mode};
+
+	send(358, 1, test);
 }
 
 
@@ -1767,7 +1725,7 @@ static uint8_t* rxbuf;
 
 #define MAX_ACCEPTED_MSG_PAYLEN 16777215
 
-int tof_raws_came;
+int tof_raws_came = 999;
 
 void print_test_msg1(void* m)
 {
@@ -1795,6 +1753,7 @@ void print_tof_raw_dist(void* m)
 		return;
 	}
 
+//	printf("IDX = %d, ORIEN = %d\n", mm->sensor_idx, mm->sensor_orientation);
 	memcpy(&latest_tof_dists[idx], m, sizeof latest_tof_dists[0]);
 	tof_raws_came = 0;
 }
@@ -1840,9 +1799,11 @@ void print_hw_pose(void* m)
 {
 	hw_pose_t *mm = m;
 
-	printf("HW pose  ang=%5.1f deg  x=%8d mm  y=%8d mm\n", ANG32TOFDEG(mm->ang), mm->x, mm->y);
+//	printf("HW pose  ang=%5.1f deg  x=%8d mm  y=%8d mm\n", ANG32TOFDEG(mm->ang), mm->x, mm->y);
 
 	cur_angle = ANG32TOFDEG(mm->ang);
+	cur_pitch = ANG_I32TOFDEG(mm->pitch);
+	cur_roll = ANG_I32TOFDEG(mm->roll);
 	cur_x = mm->x;
 	cur_y = mm->y;
 }
@@ -1853,18 +1814,55 @@ void print_drive_diag(void* m)
 
 void print_mcu_voxel_map(void* m)
 {
-	mcu_voxel_map_t *mm = m;
+	printf("WARN: mcu_voxel_map not supported anymore, use mcu_multi_voxel_map\n");
+/*	mcu_voxel_map_t *mm = m;
 
 	int id = mm->block_id;
 
-	printf("Voxel map block %u  z_step %u  base_z %d\n", id, mm->z_step, mm->base_z);
+	printf("Voxel map block %u  z_step %u  base_z %d, running_cnt=%u, ref (%d,%d)\n", id, mm->z_step, mm->base_z, mm->running_cnt, mm->ref_x, mm->ref_y);
 
 	if(id < 0 || id > 12)
 	{
 		printf("Invalid vox map block id %d\n", id);
 		return;
 	}
+	if(id == 0)
+	{
+		latest_voxmap.ref_x = mm->ref_x;
+		latest_voxmap.ref_y = mm->ref_y;
+		latest_voxmap.running_cnt = mm->running_cnt;
+	}
+	else
+	{
+		if(mm->running_cnt != latest_voxmap.running_cnt)
+		{
+			printf("WARNING: running cnt changed, skipped voxmap seg 0?\n");
+			return;
+		}
+	}
+
 	memcpy(latest_voxmap.segs[id], mm->map, sizeof(latest_voxmap.segs[0]));
+*/
+}
+
+void print_mcu_multi_voxel_map(void* m)
+{
+	mcu_multi_voxel_map_t *mm = m;
+
+	int first_id = mm->first_block_id;
+	int msgid = first_id/3;
+
+	if(first_id%3 != 0 || first_id > 12 || first_id < 0)
+	{
+		printf("WARNING: Invalid first_id (%d) in multi_voxel_map\n", first_id);
+		return;
+	}
+
+//	printf("Got multi voxel map, first id = %d. Msg id = %d\n", first_id, msgid);
+
+	voxmap_alpha = max_voxmap_alpha;
+
+	memcpy(&latest_voxmap.msgs[msgid], m, sizeof(latest_voxmap.msgs[0]));
 }
 
 /*
@@ -1887,93 +1885,7 @@ int parse_message(uint16_t id, uint32_t len)
 		
 
 
-#if 0
-		case 130:
-		{
-			cur_angle = ((double)I16FROMBUF(rxbuf, 0))/65536.0 * 360.0;
-			cur_x = (int32_t)I32FROMBUF(rxbuf,2);
-			cur_y = (int32_t)I32FROMBUF(rxbuf,6);
-			if(len>10) cur_cmd_status = rxbuf[10];
-		}
-		break;
-
-		case 131:
-		{
-			lidar.robot_pos.ang = ((double)I16FROMBUF(rxbuf, 0))/65536.0 * 360.0;
-			int mid_x = lidar.robot_pos.x = (int32_t)I32FROMBUF(rxbuf,2);
-			int mid_y = lidar.robot_pos.y = (int32_t)I32FROMBUF(rxbuf,6);
-
-			int n_points = (len-10)/2;
-
-			//printf("lowres lidar: n_points = %d\n", n_points);
-			for(int i=0; i<n_points; i++)
-			{
-				int x = (int8_t)rxbuf[10+2*i];
-				int y = (int8_t)rxbuf[10+2*i+1];
-				lidar.scan[i].valid = 1;
-				lidar.scan[i].x = x*160 + mid_x;
-				lidar.scan[i].y = y*160 + mid_y;
-			}
-			lidar.n_points = n_points;
-		}
-		break;
-
-		case 141:
-		{
-			lidar.robot_pos.ang = ((double)I16FROMBUF(rxbuf, 0))/65536.0 * 360.0;
-			int mid_x = lidar.robot_pos.x = (int32_t)I32FROMBUF(rxbuf,2);
-			int mid_y = lidar.robot_pos.y = (int32_t)I32FROMBUF(rxbuf,6);
-
-			int n_points = (len-10)/4;
-
-			//printf("highres lidar: n_points = %d\n", n_points);
-			for(int i=0; i<n_points; i++)
-			{
-				int x = (int16_t)I16FROMBUF(rxbuf, 10+0+4*i);
-				int y = (int16_t)I16FROMBUF(rxbuf, 10+2+4*i);
-				lidar.scan[i].valid = 1;
-				lidar.scan[i].x = x + mid_x;
-				lidar.scan[i].y = y + mid_y;
-			}
-			lidar.n_points = n_points;
-		}
-		break;
-
-
-		case 132:
-		{
-			for(int i=0; i<10; i++)
-			{
-				hwdbg[i] = (int32_t)I32FROMBUF(rxbuf,4*i);
-			}
-		}
-		break;
-
-		case 133: // sonar point
-		{
-			sonar[sonar_wr].x = (int32_t)I32FROMBUF(rxbuf,0);
-			sonar[sonar_wr].y = (int32_t)I32FROMBUF(rxbuf,4);
-			sonar[sonar_wr].z = (int32_t)I16FROMBUF(rxbuf,8);
-			sonar[sonar_wr].c = rxbuf[10];
-
-			//printf("SONAR: x=%d   y=%d   c=%d\n", sonar[sonar_wr].x, sonar[sonar_wr].y, sonar[sonar_wr].c);
-
-			sonar_wr++; if(sonar_wr >= SONAR_POINTS) sonar_wr = 0;
-		}
-		break;
-
-		case 134: // Battery status
-		{
-			charging = rxbuf[0]&1;
-			charge_finished = rxbuf[0]&2;
-			bat_voltage = (float)(((int)rxbuf[1]<<8) | rxbuf[2])/1000.0;
-			bat_percentage = rxbuf[3];
-			cha_voltage = (float)(((int)rxbuf[4]<<8) | rxbuf[5])/1000.0;
-			//printf("bat status %d %d %f %d\n", charging, charge_finished, bat_voltage, bat_percentage);
-		}
-		break;
-
-		case 135: // Route info
+		case 435: // Route info
 		{
 			clear_route(&some_route);
 			int n_elems = len/9;
@@ -1993,13 +1905,15 @@ int parse_message(uint16_t id, uint32_t len)
 		}
 		break;
 
-		case 136:
+#if 0
+
+		case 436:
 		{
 			run_map_rsync();
 		}
 		break;
 
-		case 137: // dbg_point
+		case 437: // dbg_point
 		{
 
 			if(rxbuf[11] == 0)
@@ -2025,36 +1939,14 @@ int parse_message(uint16_t id, uint32_t len)
 
 		}
 		break;
-
-		case 138: // 3D TOF HMAP
-		{
-			hmap_alpha_mult = 255;
-			hmap.xsamples = I16FROMBUF(rxbuf, 0);
-			hmap.ysamples = I16FROMBUF(rxbuf, 2);
-
-			if(hmap.xsamples < 1 || hmap.xsamples > 256 || hmap.ysamples < 1 || hmap.ysamples > 256)
-			{
-				printf("Invalid 3D TOF HMAP xsamples * ysamples (%d * %d)\n", hmap.xsamples, hmap.ysamples);
-				break;
-			}
-			hmap.robot_pos.ang = ((double)I16FROMBUF(rxbuf, 4))/65536.0 * 360.0;
-			hmap.robot_pos.x = (int32_t)I32FROMBUF(rxbuf,6);
-			hmap.robot_pos.y = (int32_t)I32FROMBUF(rxbuf,10);
-			hmap.unit_size = rxbuf[14];
-
-			memcpy(hmap.data, &rxbuf[15], hmap.xsamples*hmap.ysamples);
-			//printf("Got %d x %d hmap at %d, %d, %d.\n", hmap.xsamples, hmap.ysamples, hmap.robot_pos.ang, hmap.robot_pos.x, hmap.robot_pos.y);
-		}
-		break;
-
-		case 139: // info state
+		case 439: // info state
 		{
 			cur_info_state = static_cast<info_state_t>(rxbuf[0]);
 		}
 		break;
 
 
-		case 140: // Robot info
+		case 440: // Robot info
 		{
 			robot_xs = (double)I16FROMBUF(rxbuf, 0);
 			robot_ys = (double)I16FROMBUF(rxbuf, 2);
@@ -2065,7 +1957,7 @@ int parse_message(uint16_t id, uint32_t len)
 		}
 		break;
 
-		case 142: // Picture
+		case 442: // Picture
 		{
 			pict_id = I16FROMBUF(rxbuf, 0);
 			pict_bpp = rxbuf[2];
@@ -2083,7 +1975,7 @@ int parse_message(uint16_t id, uint32_t len)
 		}
 		break;
 
-		case 143: // Movement status
+		case 443: // Movement status
 		{
 			int16_t mov_start_ang = I16FROMBUF(rxbuf, 0);
 			int32_t mov_start_x = I32FROMBUF(rxbuf, 2);
@@ -2106,7 +1998,7 @@ int parse_message(uint16_t id, uint32_t len)
 		}
 		break;
 
-		case 144: // Route status
+		case 444: // Route status
 		{
 			int16_t mov_start_ang = I16FROMBUF(rxbuf, 0);
 			int32_t mov_start_x = I32FROMBUF(rxbuf, 2);
@@ -2144,8 +2036,9 @@ int parse_message(uint16_t id, uint32_t len)
 		}
 		break;
 
+	#endif
 
-		case 145: // State vector
+		case 445: // State vector
 		{
 			if(len != STATE_VECT_LEN)
 			{
@@ -2158,10 +2051,9 @@ int parse_message(uint16_t id, uint32_t len)
 		}
 		break;
 
-	#endif
 		default:
 		{
-			printf("Note: unhandled message type, msgid=%u, paylen=%u\n", id, len);
+			//printf("Note: unhandled message type, msgid=%u, paylen=%u\n", id, len);
 		}
 		break;
 	}
@@ -2175,21 +2067,7 @@ int main(int argc, char** argv)
 	bool return_pressed = false;
 	int focus = 1;
 	int online = 1;
-	for(int i=0; i<0; i++)
-	{
-		latest_voxmap.segs[0][i] = 1;
-		latest_voxmap.segs[1][i] = 2;
-		latest_voxmap.segs[2][i] = 4;
-		latest_voxmap.segs[3][i] = 8;
-		latest_voxmap.segs[4][i] = 16;
-		latest_voxmap.segs[5][i] = 32;
-		latest_voxmap.segs[6][i] = 64;
-		latest_voxmap.segs[7][i] = 128;
-		latest_voxmap.segs[8][i] = 256;
-		latest_voxmap.segs[9][i] = 512;
-		latest_voxmap.segs[10][i] = 1024;
-		latest_voxmap.segs[11][i] = 2048;
-	}
+
 	if(argc != 3)
 	{
 		printf("Usage: rn1client addr port\n");
@@ -2281,6 +2159,10 @@ int main(int argc, char** argv)
 	bool left_click_on = false;
 	double prev_click_x = 0.0, prev_click_y = 0.0;
 
+
+	origin_x = mm_per_pixel*screen_x/2;
+	origin_y = mm_per_pixel*screen_y/2;
+
 	int cnt = 0;
 	while(win.isOpen())
 	{
@@ -2361,23 +2243,36 @@ int main(int argc, char** argv)
 
 		}
 
-		uint8_t buf[3] = {0,0,0};
-		size_t received = 0;
-
 		if(online)
 		{
 			for(int i=0; i<20; i++)
 			{
-				sf::Socket::Status ret;
-				while( (ret = tcpsock.receive(buf, 5, received)) == sf::Socket::Done)
-				{
-					if(received != 5)
-					{
-						printf("error horror.\n");
-					}
 
-					uint16_t msgid = ((uint16_t)buf[0]<<8) | ((uint16_t)buf[1]<<0);
-					uint32_t paylen = ((uint32_t)buf[2]<<16) | ((uint32_t)buf[3]<<8) | ((uint32_t)buf[4]<<0);
+				uint8_t headerbuf[5] = {0};
+				size_t received = 0;
+
+				uint32_t header_rx = 0;
+				int something = 0;
+				while(header_rx < 5)
+				{
+					sf::Socket::Status ret;
+
+					if( (ret = tcpsock.receive(&headerbuf[header_rx], 5-header_rx, received)) == sf::Socket::Done)
+					{
+					//	printf("head %d\n", received);
+						if(received != 0)
+							something = 1;
+						header_rx += received;
+					}
+					if(received == 0 && something == 0)
+						goto NOTHING;
+				}
+
+
+				{
+
+					uint16_t msgid = ((uint16_t)headerbuf[0]<<8) | ((uint16_t)headerbuf[1]<<0);
+					uint32_t paylen = ((uint32_t)headerbuf[2]<<16) | ((uint32_t)headerbuf[3]<<8) | ((uint32_t)headerbuf[4]<<0);
 
 					//printf("msgid=%u paylen=%u\n", msgid, paylen);
 
@@ -2392,8 +2287,12 @@ int main(int argc, char** argv)
 					uint32_t total_rx = 0;
 					while(total_rx < paylen)
 					{
+//						printf("pay\n");
+
+						sf::Socket::Status ret;
 						if( (ret = tcpsock.receive(&rxbuf[total_rx], paylen-total_rx, received)) == sf::Socket::Done)
 						{
+						//	printf("pay %d\n", received);
 							total_rx += received;
 				//			printf("    rx %d -> total %d\n", received, total_rx);
 						}
@@ -2406,6 +2305,7 @@ int main(int argc, char** argv)
 					parse_message(msgid, paylen);
 				}
 			}
+			NOTHING:;
 		}
 
 		if(focus)
@@ -2521,7 +2421,7 @@ int main(int argc, char** argv)
 						{
 							statebut_pressed[i] = true;
 							state_vect_to_send.table[i] = received_state_vect.table[i]?0:1;
-							send_state_vect();
+							send(364, STATE_VECT_LEN, state_vect_to_send.table);
 						}				
 					}
 					else
@@ -2554,18 +2454,10 @@ int main(int argc, char** argv)
 
 								int x = dest_x; int y = dest_y;
 
-								uint8_t test[12] = {56 /*ROUTE*/, 0, 9,   (x>>24)&0xff,(x>>16)&0xff,(x>>8)&0xff,(x>>0)&0xff,
+								uint8_t test[9] = {(x>>24)&0xff,(x>>16)&0xff,(x>>8)&0xff,(x>>0)&0xff,
 									(y>>24)&0xff, (y>>16)&0xff, (y>>8)&0xff, (y>>0)&0xff, 0};
 
-								if(tcpsock.send(test, 12) != sf::Socket::Done)
-								{
-									printf("Send error\n");
-									sprintf(status_text, "Send error, connection lost?");
-								}
-								else
-								{
-									sprintf(status_text, "Sent command: search for route");
-								}
+								send(356, 9, test);
 							} break;
 
 							case MODE_MANUAL_BACK:
@@ -2575,18 +2467,10 @@ int main(int argc, char** argv)
 
 								int x = dest_x; int y = dest_y;
 
-								uint8_t test[12] = {55 /*DEST*/, 0, 9,   (x>>24)&0xff,(x>>16)&0xff,(x>>8)&0xff,(x>>0)&0xff,
+								uint8_t test[9] = {(x>>24)&0xff,(x>>16)&0xff,(x>>8)&0xff,(x>>0)&0xff,
 									(y>>24)&0xff, (y>>16)&0xff, (y>>8)&0xff, (y>>0)&0xff, back};
 
-								if(tcpsock.send(test, 12) != sf::Socket::Done)
-								{
-									printf("Send error\n");
-									sprintf(status_text, "Send error, connection lost?");
-								}
-								else
-								{
-									sprintf(status_text, "Sent command: move directly");
-								}
+								send(355, 9, test);
 
 							} break;
 
@@ -2787,6 +2671,14 @@ int main(int argc, char** argv)
 				dbg_boost = 1;
 			}
 
+			if(sf::Keyboard::isKeyPressed(sf::Keyboard::A))
+			{
+				animate_slice = true;
+			}
+			else
+				animate_slice = false;
+
+
 			if(sf::Keyboard::isKeyPressed(sf::Keyboard::Up))
 			{
 			}
@@ -2908,6 +2800,8 @@ int main(int argc, char** argv)
 			sonar_wr++; if(sonar_wr >= SONAR_POINTS) sonar_wr = 0;
 		}
 
+		if(voxmap_alpha>0) voxmap_alpha-=1;
+		if(voxmap_alpha<0) voxmap_alpha=0;
 
 	}
 

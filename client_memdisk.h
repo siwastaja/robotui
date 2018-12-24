@@ -22,7 +22,7 @@
 #define CLIENT_MEMDISK_H
 
 #include <stdint.h>
-#include "../rn1-host/mapping.h"
+#include "../robotsoft/mapping.h"
 
 // Disk access; file name is generated and the page is stored/read.
 int read_map_page(world_t* w, int pagex, int pagey);
