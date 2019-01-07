@@ -125,12 +125,13 @@ int voxmap_alpha;
 
 #define VOXMAP_ALPHA 255
 static const uint32_t voxmap_blank_color = RGBA32(0UL,  0UL, 0UL, 50UL);
+static const uint32_t forbidden_color = RGBA32(255UL,  190UL, 190UL, 255UL);
 
 static const uint32_t voxmap_colors[16] = {
-/* 0           */ RGBA32(255UL,  0UL,255UL, VOXMAP_ALPHA),
-/* 1           */ RGBA32(150UL,  0UL,255UL, VOXMAP_ALPHA),
-/* 2           */ RGBA32(120UL,120UL,255UL, VOXMAP_ALPHA),
-/* 3           */ RGBA32(  0UL,100UL,255UL, VOXMAP_ALPHA),
+/* 0           */ RGBA32(220UL, 50UL,220UL, VOXMAP_ALPHA),
+/* 1           */ RGBA32(140UL, 50UL,220UL, VOXMAP_ALPHA),
+/* 2           */ RGBA32(100UL,120UL,220UL, VOXMAP_ALPHA),
+/* 3           */ RGBA32( 20UL,100UL,240UL, VOXMAP_ALPHA),
 /* 4           */ RGBA32(  0UL,130UL,200UL, VOXMAP_ALPHA),
 /* 5           */ RGBA32(  0UL,160UL,160UL, VOXMAP_ALPHA),
 /* 6           */ RGBA32(  0UL,200UL,130UL, VOXMAP_ALPHA),
@@ -424,6 +425,56 @@ void draw_route_mm(sf::RenderWindow& win, route_unit_t **route)
 	}
 }
 
+void draw_drive_diag(sf::RenderWindow& win, drive_diag_t *mm)
+{
+
+	int32_t ang_err;
+	int32_t lin_err;
+	int32_t cur_x;
+	int32_t cur_y;
+	int32_t target_x;
+	int32_t target_y;
+	int32_t id;
+	int32_t remaining;
+	uint32_t micronavi_stop_flags;
+
+
+	float x1, x2, y1, y2;
+	x1 = (mm->cur_x+origin_x)/mm_per_pixel;
+	y1 = (-1*mm->cur_y+origin_y)/mm_per_pixel;
+	x2 = (mm->target_x+origin_x)/mm_per_pixel;
+	y2 = (-1*mm->target_y+origin_y)/mm_per_pixel;
+
+	sf::RectangleShape rect(sf::Vector2f( sqrt(pow(x2-x1,2)+pow(y2-y1,2)), 2.0));
+	rect.setOrigin(0, 1.0);
+	rect.setPosition(x1, y1);
+	rect.setRotation(atan2(y2-y1,x2-x1)*180.0/M_PI);
+	rect.setFillColor(sf::Color(255,255,255,170));
+
+	win.draw(rect);
+
+
+	sf::Text t;
+	char buf[256];
+	t.setFont(arial);
+
+	sprintf(buf, "%.1f deg", ANG_I32TOFDEG(mm->ang_err));
+	t.setString(buf);
+	t.setCharacterSize(12);
+	t.setFillColor(sf::Color(255,255,255,255));
+	t.setPosition((x1+x2)/2 + 4, (y1+y2)/2 - 7);
+	win.draw(t);
+
+	sprintf(buf, "%d mm", mm->lin_err);
+	t.setString(buf);
+	t.setCharacterSize(12);
+	t.setFillColor(sf::Color(255,255,255,255));
+	t.setPosition((x1+x2)/2 + 4, (y1+y2)/2 + 7);
+	win.draw(t);
+
+}
+
+
 //#define WALL_LEVEL(i) ((int)(i).num_obstacles*4)
 #define WALL_LEVEL(i) ((int)(i).num_obstacles*2)
 
@@ -434,18 +485,19 @@ void draw_page(sf::RenderWindow& win, map_page_t* page, int startx, int starty)
 
 	static uint32_t pixels[MAP_PAGE_W*MAP_PAGE_W];
 
+	memset(pixels, 0xff, sizeof pixels);
+
 	for(int x = 0; x < MAP_PAGE_W; x++)
 	{
 		for(int y = 0; y < MAP_PAGE_W; y++)
 		{
-			if(page->meta[(y/2)*MAP_PAGE_W+(x/2)].constraints & CONSTRAINT_FORBIDDEN)
+			if(page->meta[(y/2)*(MAP_PAGE_W/2)+(x/2)].constraints & CONSTRAINT_FORBIDDEN)
 			{
+				pixels[(MAP_PAGE_W-1-y)*MAP_PAGE_W+x] = forbidden_color;
 			}
 			else
 			{
-				int alpha = 255;
-				if(alpha > 255) alpha=255;
-				uint64_t val = page->voxmap[y*MAP_PAGE_W+x];
+				uint32_t val = page->voxmap[y*MAP_PAGE_W+x];
 				/* really one at once:
 				if(val&(1<<cur_slice))
 					pixels[yy*xs+xx] = voxmap_colors[cur_slice];
@@ -1252,7 +1304,7 @@ void draw_map(sf::RenderWindow& win)
 				int startx = -MAP_MIDDLE_UNIT*MAP_UNIT_W + x*MAP_PAGE_W*MAP_UNIT_W + origin_x;
 				int starty = -1*(-MAP_MIDDLE_UNIT*MAP_UNIT_W + (y+1)*MAP_PAGE_W*MAP_UNIT_W) + origin_y;
 
-//				if(x==127 && y==129)
+//				if(x==127 && y==128)
 					draw_page(win, world.pages[x][y], startx, starty);
 			}
 		}
@@ -1808,8 +1860,13 @@ void print_hw_pose(void* m)
 	cur_y = mm->y;
 }
 
+drive_diag_t latest_drive_diag;
+
 void print_drive_diag(void* m)
 {
+	drive_diag_t *mm = m;
+
+	memcpy(&latest_drive_diag, m, sizeof latest_drive_diag);
 }
 
 void print_mcu_voxel_map(void* m)
@@ -2727,6 +2784,8 @@ int main(int argc, char** argv)
 
 		draw_route_mm(win, &some_route);
 
+		draw_drive_diag(win, &latest_drive_diag);
+
 		draw_texts(win);
 		sf::RectangleShape rect(sf::Vector2f( gui_box_xs, gui_box_ys));
 		rect.setPosition(gui_box_x, gui_box_y);
@@ -2800,7 +2859,7 @@ int main(int argc, char** argv)
 			sonar_wr++; if(sonar_wr >= SONAR_POINTS) sonar_wr = 0;
 		}
 
-		if(voxmap_alpha>0) voxmap_alpha-=1;
+		if(voxmap_alpha>0) voxmap_alpha-=5;
 		if(voxmap_alpha<0) voxmap_alpha=0;
 
 	}

@@ -35,7 +35,7 @@ int read_map_page(world_t* w, int pagex, int pagey)
 	char fname[1024];
 	sprintf(fname, "%08x_%u_%u_%u.map", robot_id, w->id, pagex, pagey);
 
-	printf("Info: Attempting to read map page %s\n", fname);
+//	printf("Info: Attempting to read map page %s\n", fname);
 
 	FILE *f = fopen(fname, "r");
 	if(!f)
@@ -60,11 +60,11 @@ int load_map_page(world_t* w, int pagex, int pagey)
 {
 	if(w->pages[pagex][pagey])
 	{
-		printf("Info: reloading already allocated map page %d,%d\n", pagex, pagey);
+//		printf("Info: reloading already allocated map page %d,%d\n", pagex, pagey);
 	}
 	else
 	{
-		printf("Info: Allocating mem for page %d,%d\n", pagex, pagey);
+//		printf("Info: Allocating mem for page %d,%d\n", pagex, pagey);
 		w->pages[pagex][pagey] = (map_page_t*)malloc(sizeof(map_page_t));
 	}
 
