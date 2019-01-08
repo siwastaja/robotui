@@ -1637,15 +1637,15 @@ void draw_voxmap(sf::RenderWindow& win)
 
 	if(animate_slice)
 	{
-		if((cur_slice < 15 && cnt >= 2) || (cnt >= 10))
+		if((cur_slice < 16 && cnt >= 2) || (cnt >= 10))
 		{
 			cnt = 0;
 			cur_slice++;
-			if(cur_slice > 15) cur_slice = 1;
+			if(cur_slice > 16) cur_slice = 1;
 		}
 	}
 	else
-		cur_slice = 15;
+		cur_slice = 16;
 }
 
 void draw_lidar(sf::RenderWindow& win, client_lidar_scan_t* lid)
