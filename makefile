@@ -1,7 +1,7 @@
 CC = g++
 LD = g++
 
-CXXFLAGS = -fpermissive -Wall -Winline -D_GLIBCXX_USE_CXX11_ABI=0 -Wno-narrowing -Wno-write-strings -g
+CXXFLAGS = -fpermissive -Wall -Winline -D_GLIBCXX_USE_CXX11_ABI=0 -Wno-narrowing -Wno-write-strings -O3
 LDFLAGS = -D_GLIBCXX_USE_CXX11_ABI=0
 #-std=c++98
 

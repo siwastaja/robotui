@@ -106,9 +106,9 @@ click_mode_t click_mode;
 double dest_x, dest_y;
 click_mode_t dest_type = MODE_INVALID;
 
-double robot_xs = 650.0;
-double robot_ys = 460.0;
-double lidar_xoffs = 120.0;
+double robot_xs = 250.0;
+double robot_ys = 250.0;
+double lidar_xoffs = 100.0;
 double lidar_yoffs = 0.0;
 
 
@@ -126,6 +126,7 @@ int voxmap_alpha;
 #define VOXMAP_ALPHA 255
 static const uint32_t voxmap_blank_color = RGBA32(0UL,  0UL, 0UL, 50UL);
 static const uint32_t forbidden_color = RGBA32(255UL,  190UL, 190UL, 255UL);
+static const uint32_t visited_color = RGBA32(255UL,  255L, 255UL, 255UL);
 
 static const uint32_t voxmap_colors[16] = {
 /* 0           */ RGBA32(220UL, 50UL,220UL, VOXMAP_ALPHA),
@@ -427,17 +428,7 @@ void draw_route_mm(sf::RenderWindow& win, route_unit_t **route)
 
 void draw_drive_diag(sf::RenderWindow& win, drive_diag_t *mm)
 {
-
-	int32_t ang_err;
-	int32_t lin_err;
-	int32_t cur_x;
-	int32_t cur_y;
-	int32_t target_x;
-	int32_t target_y;
-	int32_t id;
-	int32_t remaining;
-	uint32_t micronavi_stop_flags;
-
+	int run = mm->run;
 
 	float x1, x2, y1, y2;
 	x1 = (mm->cur_x+origin_x)/mm_per_pixel;
@@ -449,7 +440,7 @@ void draw_drive_diag(sf::RenderWindow& win, drive_diag_t *mm)
 	rect.setOrigin(0, 1.0);
 	rect.setPosition(x1, y1);
 	rect.setRotation(atan2(y2-y1,x2-x1)*180.0/M_PI);
-	rect.setFillColor(sf::Color(255,255,255,170));
+	rect.setFillColor(run?sf::Color(255,200,200,200):sf::Color(160,200,200,200));
 
 	win.draw(rect);
 
@@ -461,14 +452,14 @@ void draw_drive_diag(sf::RenderWindow& win, drive_diag_t *mm)
 	sprintf(buf, "%.1f deg", ANG_I32TOFDEG(mm->ang_err));
 	t.setString(buf);
 	t.setCharacterSize(12);
-	t.setFillColor(sf::Color(255,255,255,255));
+	t.setFillColor(run?sf::Color(255,200,200,255):sf::Color(160,200,200,255));
 	t.setPosition((x1+x2)/2 + 4, (y1+y2)/2 - 7);
 	win.draw(t);
 
 	sprintf(buf, "%d mm", mm->lin_err);
 	t.setString(buf);
 	t.setCharacterSize(12);
-	t.setFillColor(sf::Color(255,255,255,255));
+	t.setFillColor(run?sf::Color(255,200,200,255):sf::Color(160,200,200,255));
 	t.setPosition((x1+x2)/2 + 4, (y1+y2)/2 + 7);
 	win.draw(t);
 
@@ -491,28 +482,35 @@ void draw_page(sf::RenderWindow& win, map_page_t* page, int startx, int starty)
 	{
 		for(int y = 0; y < MAP_PAGE_W; y++)
 		{
-			if(page->meta[(y/2)*(MAP_PAGE_W/2)+(x/2)].constraints & CONSTRAINT_FORBIDDEN)
-			{
-				pixels[(MAP_PAGE_W-1-y)*MAP_PAGE_W+x] = forbidden_color;
-			}
+			uint32_t val = page->voxmap[y*MAP_PAGE_W+x];
+			/* really one at once:
+			if(val&(1<<cur_slice))
+				pixels[yy*xs+xx] = voxmap_colors[cur_slice];
 			else
-			{
-				uint32_t val = page->voxmap[y*MAP_PAGE_W+x];
-				/* really one at once:
-				if(val&(1<<cur_slice))
-					pixels[yy*xs+xx] = voxmap_colors[cur_slice];
-				else
-					pixels[yy*xs+xx] = voxmap_blank_color;
-				*/
+				pixels[yy*xs+xx] = voxmap_blank_color;
+			*/
 
-				pixels[(MAP_PAGE_W-1-y)*MAP_PAGE_W+x] = voxmap_blank_color;
-				for(int slice = 0; slice<cur_slice; slice++)
+			pixels[(MAP_PAGE_W-1-y)*MAP_PAGE_W+x] = voxmap_blank_color;
+			for(int slice = 0; slice<cur_slice; slice++)
+			{
+				if(val&(1<<slice))
+					pixels[(MAP_PAGE_W-1-y)*MAP_PAGE_W+x] = voxmap_colors[slice];
+			}
+
+
+			if( (((y&1) && (x&1))))
+			{
+				if(page->meta[(y/2)*(MAP_PAGE_W/2)+(x/2)].constraints & CONSTRAINT_FORBIDDEN)
 				{
-					if(val&(1<<slice))
-						pixels[(MAP_PAGE_W-1-y)*MAP_PAGE_W+x] = voxmap_colors[slice];
+					pixels[(MAP_PAGE_W-1-y)*MAP_PAGE_W+x] = forbidden_color;
 				}
 
+				if(page->meta[(y/2)*(MAP_PAGE_W/2)+(x/2)].num_visited > 0)
+				{
+					pixels[(MAP_PAGE_W-1-y)*MAP_PAGE_W+x] = visited_color;
+				}
 			}
+
 		}
 	}
 
@@ -1696,56 +1694,19 @@ unsigned short serv_port;
 sf::TcpSocket tcpsock;
 
 
-void speedlimit_msg(uint8_t limit)
-{
-	uint8_t test[8] = {63 /*SPEEDLIM*/, 0, 5, limit, limit, limit, 40, 40};
-
-	if(tcpsock.send(test, 8) != sf::Socket::Done)
-	{
-		printf("Send error\n");
-	}
-}
-
-
-void go_charge_msg(uint8_t params)
-{
-	uint8_t test[4] = {57, 0, 1, params};
-
-	if(tcpsock.send(test, 4) != sf::Socket::Done)
-	{
-		printf("Send error\n");
-	}
-}
-
-void maintenance_msg(int restart_mode)
-{
-	const int size = 1+2+4+4;
-	uint8_t test[size];
-	test[0] = 62;
-	test[1] = ((size-3)&0xff00)>>8;
-	test[2] = (size-3)&0xff;
-	I32TOBUF(0x12345678, test, 3);
-	I32TOBUF(restart_mode, test, 7);
-
-	if(tcpsock.send(test, size) != sf::Socket::Done)
-	{
-		printf("Send error\n");
-	}
-}
-
 state_vect_t received_state_vect;
 state_vect_t state_vect_to_send;
 
 #define SENDBUF_SIZE (128*1024)
 
-void send(int msgid, int paylen, uint8_t* buf)
+int send(int msgid, int paylen, uint8_t* buf)
 {
 	static uint8_t sendbuf[SENDBUF_SIZE];
 
 	if(paylen >= SENDBUF_SIZE-5)
 	{
 		printf("Message too long to be sent.\n");
-		return;
+		return 1;
 	}
 
 	sendbuf[0] = (msgid&0xff00)>>8;
@@ -1758,7 +1719,9 @@ void send(int msgid, int paylen, uint8_t* buf)
 	if(tcpsock.send(sendbuf, 5+paylen) != sf::Socket::Done)
 	{
 		printf("Send error\n");
+		return 1;
 	}
+	return 0;
 }
 
 void mode_msg(uint8_t mode)
@@ -1766,6 +1729,31 @@ void mode_msg(uint8_t mode)
 	uint8_t test[1] = {mode};
 
 	send(358, 1, test);
+}
+
+void speedlimit_msg(uint8_t limit)
+{
+	uint8_t test[5] = {limit, limit, limit, 40, 40};
+
+	send(363, 5, test);
+}
+
+
+void go_charge_msg(uint8_t params)
+{
+	uint8_t test[1] = {params};
+
+	send(357, 1, test);
+}
+
+void maintenance_msg(int restart_mode)
+{
+	const int size = 4+4;
+	uint8_t test[size];
+	I32TOBUF(0x12345678, test, 0);
+	I32TOBUF(restart_mode, test, 4);
+
+	send(362, size, test);
 }
 
 
@@ -1922,6 +1910,10 @@ void print_mcu_multi_voxel_map(void* m)
 	memcpy(&latest_voxmap.msgs[msgid], m, sizeof(latest_voxmap.msgs[0]));
 }
 
+void print_chafind_results(void* m)
+{
+}
+
 /*
 void print_(void* m)
 {
@@ -1962,40 +1954,12 @@ int parse_message(uint16_t id, uint32_t len)
 		}
 		break;
 
-#if 0
-
 		case 436:
 		{
 			run_map_rsync();
 		}
 		break;
 
-		case 437: // dbg_point
-		{
-
-			if(rxbuf[11] == 0)
-			{
-				show_dbgpoint = 1;
-				dbgpoint_x = (int32_t)I32FROMBUF(rxbuf,0);
-				dbgpoint_y = (int32_t)I32FROMBUF(rxbuf,4);
-				dbgpoint_r = rxbuf[8];
-				dbgpoint_g = rxbuf[9];
-				dbgpoint_b = rxbuf[10];
-			}
-			else
-			{
-				pers_dbgpoint_x[num_pers_dbgpoints] = (int32_t)I32FROMBUF(rxbuf,0);
-				pers_dbgpoint_y[num_pers_dbgpoints] = (int32_t)I32FROMBUF(rxbuf,4);
-				pers_dbgpoint_r[num_pers_dbgpoints] = rxbuf[8];
-				pers_dbgpoint_g[num_pers_dbgpoints] = rxbuf[9];
-				pers_dbgpoint_b[num_pers_dbgpoints] = rxbuf[10];
-				num_pers_dbgpoints++;
-				if(num_pers_dbgpoints > 99) num_pers_dbgpoints = 0;
-			}
-
-
-		}
-		break;
 		case 439: // info state
 		{
 			cur_info_state = static_cast<info_state_t>(rxbuf[0]);
@@ -2011,24 +1975,6 @@ int parse_message(uint16_t id, uint32_t len)
 			lidar_yoffs = (double)I16FROMBUF(rxbuf, 6);
 
 			printf("Robot size msg: xs=%.1f ys=%.1f lidar_x=%.1f lidar_y=%.1f\n", robot_xs, robot_ys, lidar_xoffs, lidar_yoffs);
-		}
-		break;
-
-		case 442: // Picture
-		{
-			pict_id = I16FROMBUF(rxbuf, 0);
-			pict_bpp = rxbuf[2];
-			pict_xs = I16FROMBUF(rxbuf, 3);
-			pict_ys = I16FROMBUF(rxbuf, 5);
-			printf("Picture msg: id=%u bytes_per_pixel=%u xs=%u ys=%u\n", pict_id, pict_bpp, pict_xs, pict_ys);
-			int pict_size = pict_bpp*pict_xs*pict_ys;
-			if(pict_size > 100000)
-			{
-				printf("Ignoring oversized image.\n");
-				pict_id = -1;
-			}
-			else
-				memcpy(pict_data, &rxbuf[7], pict_size);
 		}
 		break;
 
@@ -2092,6 +2038,55 @@ int parse_message(uint16_t id, uint32_t len)
 			}
 		}
 		break;
+
+#if 0
+
+
+		case 437: // dbg_point
+		{
+
+			if(rxbuf[11] == 0)
+			{
+				show_dbgpoint = 1;
+				dbgpoint_x = (int32_t)I32FROMBUF(rxbuf,0);
+				dbgpoint_y = (int32_t)I32FROMBUF(rxbuf,4);
+				dbgpoint_r = rxbuf[8];
+				dbgpoint_g = rxbuf[9];
+				dbgpoint_b = rxbuf[10];
+			}
+			else
+			{
+				pers_dbgpoint_x[num_pers_dbgpoints] = (int32_t)I32FROMBUF(rxbuf,0);
+				pers_dbgpoint_y[num_pers_dbgpoints] = (int32_t)I32FROMBUF(rxbuf,4);
+				pers_dbgpoint_r[num_pers_dbgpoints] = rxbuf[8];
+				pers_dbgpoint_g[num_pers_dbgpoints] = rxbuf[9];
+				pers_dbgpoint_b[num_pers_dbgpoints] = rxbuf[10];
+				num_pers_dbgpoints++;
+				if(num_pers_dbgpoints > 99) num_pers_dbgpoints = 0;
+			}
+
+
+		}
+		break;
+
+		case 442: // Picture
+		{
+			pict_id = I16FROMBUF(rxbuf, 0);
+			pict_bpp = rxbuf[2];
+			pict_xs = I16FROMBUF(rxbuf, 3);
+			pict_ys = I16FROMBUF(rxbuf, 5);
+			printf("Picture msg: id=%u bytes_per_pixel=%u xs=%u ys=%u\n", pict_id, pict_bpp, pict_xs, pict_ys);
+			int pict_size = pict_bpp*pict_xs*pict_ys;
+			if(pict_size > 100000)
+			{
+				printf("Ignoring oversized image.\n");
+				pict_id = -1;
+			}
+			else
+				memcpy(pict_data, &rxbuf[7], pict_size);
+		}
+		break;
+
 
 	#endif
 
@@ -2508,26 +2503,45 @@ int main(int argc, char** argv)
 						{
 							case MODE_ROUTE: {
 								clear_route(&some_route);
+								sprintf(status_text, "Status bar");
 
 								int x = dest_x; int y = dest_y;
 
 								uint8_t test[9] = {(x>>24)&0xff,(x>>16)&0xff,(x>>8)&0xff,(x>>0)&0xff,
 									(y>>24)&0xff, (y>>16)&0xff, (y>>8)&0xff, (y>>0)&0xff, 0};
 
-								send(356, 9, test);
+								if(send(356, 9, test))
+								{
+									printf("Send error\n");
+									sprintf(status_text, "Send error, connection lost?");
+								}
+								else
+								{
+									sprintf(status_text, "Sent command: find route");
+								}
+
 							} break;
 
 							case MODE_MANUAL_BACK:
 							back = 1;
 							case MODE_MANUAL_FWD: {
 								clear_route(&some_route);
+								sprintf(status_text, "Status bar");
 
 								int x = dest_x; int y = dest_y;
 
 								uint8_t test[9] = {(x>>24)&0xff,(x>>16)&0xff,(x>>8)&0xff,(x>>0)&0xff,
 									(y>>24)&0xff, (y>>16)&0xff, (y>>8)&0xff, (y>>0)&0xff, back};
 
-								send(355, 9, test);
+								if(send(355, 9, test))
+								{
+									printf("Send error\n");
+									sprintf(status_text, "Send error, connection lost?");
+								}
+								else
+								{
+									sprintf(status_text, "Sent command: move directly");
+								}
 
 							} break;
 
@@ -2535,13 +2549,14 @@ int main(int argc, char** argv)
 							back = 1;
 							case MODE_FORCE_FWD: {
 								clear_route(&some_route);
+								sprintf(status_text, "Status bar");
 
 								int x = dest_x; int y = dest_y;
 
-								uint8_t test[12] = {55 /*DEST*/, 0, 9,   (x>>24)&0xff,(x>>16)&0xff,(x>>8)&0xff,(x>>0)&0xff,
+								uint8_t test[9] = {  (x>>24)&0xff,(x>>16)&0xff,(x>>8)&0xff,(x>>0)&0xff,
 									(y>>24)&0xff, (y>>16)&0xff, (y>>8)&0xff, (y>>0)&0xff, 0b100 & back};
 
-								if(tcpsock.send(test, 12) != sf::Socket::Done)
+								if(send(355, 9, test))
 								{
 									printf("Send error\n");
 									sprintf(status_text, "Send error, connection lost?");
@@ -2556,13 +2571,14 @@ int main(int argc, char** argv)
 
 							case MODE_POSE: {
 								clear_route(&some_route);
+								sprintf(status_text, "Status bar");
 
 								int x = dest_x; int y = dest_y;
 
-								uint8_t test[12] = {55 /*DEST*/, 0, 9,   (x>>24)&0xff,(x>>16)&0xff,(x>>8)&0xff,(x>>0)&0xff,
+								uint8_t test[9] = { (x>>24)&0xff,(x>>16)&0xff,(x>>8)&0xff,(x>>0)&0xff,
 									(y>>24)&0xff, (y>>16)&0xff, (y>>8)&0xff, (y>>0)&0xff, 0b1000};
 
-								if(tcpsock.send(test, 12) != sf::Socket::Done)
+								if(send(355, 9, test))
 								{
 									printf("Send error\n");
 									sprintf(status_text, "Send error, connection lost?");
@@ -2576,10 +2592,10 @@ int main(int argc, char** argv)
 
 							case MODE_ADDCONSTRAINT: {
 								int x = click_x; int y = click_y;
-								uint8_t test[11] = {60, 0, 8,   (x>>24)&0xff,(x>>16)&0xff,(x>>8)&0xff,(x>>0)&0xff,
+								uint8_t test[8] = {  (x>>24)&0xff,(x>>16)&0xff,(x>>8)&0xff,(x>>0)&0xff,
 									(y>>24)&0xff, (y>>16)&0xff, (y>>8)&0xff, (y>>0)&0xff};
 
-								if(tcpsock.send(test, 11) != sf::Socket::Done)
+								if(send(360, 8, test))
 								{
 									printf("Send error\n");
 									sprintf(status_text, "Send error, connection lost?");
@@ -2593,10 +2609,10 @@ int main(int argc, char** argv)
 
 							case MODE_REMCONSTRAINT: {
 								int x = click_x; int y = click_y;
-								uint8_t test[11] = {61, 0, 8,   (x>>24)&0xff,(x>>16)&0xff,(x>>8)&0xff,(x>>0)&0xff,
+								uint8_t test[8] = {(x>>24)&0xff,(x>>16)&0xff,(x>>8)&0xff,(x>>0)&0xff,
 									(y>>24)&0xff, (y>>16)&0xff, (y>>8)&0xff, (y>>0)&0xff};
 
-								if(tcpsock.send(test, 11) != sf::Socket::Done)
+								if(send(361, 8, test))
 								{
 									printf("Send error\n");
 									sprintf(status_text, "Send error, connection lost?");
