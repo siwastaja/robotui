@@ -500,15 +500,16 @@ void draw_page(sf::RenderWindow& win, map_page_t* page, int startx, int starty)
 
 			if( (((y&1) && (x&1))))
 			{
+				if(page->meta[(y/2)*(MAP_PAGE_W/2)+(x/2)].num_visited > 0)
+				{
+					pixels[(MAP_PAGE_W-1-y)*MAP_PAGE_W+x] = visited_color;
+				}
+
 				if(page->meta[(y/2)*(MAP_PAGE_W/2)+(x/2)].constraints & CONSTRAINT_FORBIDDEN)
 				{
 					pixels[(MAP_PAGE_W-1-y)*MAP_PAGE_W+x] = forbidden_color;
 				}
 
-				if(page->meta[(y/2)*(MAP_PAGE_W/2)+(x/2)].num_visited > 0)
-				{
-					pixels[(MAP_PAGE_W-1-y)*MAP_PAGE_W+x] = visited_color;
-				}
 			}
 
 		}
