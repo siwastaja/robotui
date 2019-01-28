@@ -127,6 +127,8 @@ int voxmap_alpha;
 static const uint32_t voxmap_blank_color = RGBA32(0UL,  0UL, 0UL, 50UL);
 static const uint32_t forbidden_color = RGBA32(255UL,  190UL, 190UL, 255UL);
 static const uint32_t visited_color = RGBA32(255UL,  255L, 255UL, 255UL);
+static const uint32_t routing_allowed_color = RGBA32(255UL,  255UL, 255UL, 255UL);
+static const uint32_t routing_unallowed_color = RGBA32(0UL,  0UL, 0UL, 255UL);
 
 static const uint32_t voxmap_colors[16] = {
 /* 0           */ RGBA32(220UL, 50UL,220UL, VOXMAP_ALPHA),
@@ -148,6 +150,8 @@ static const uint32_t voxmap_colors[16] = {
 };
 
 
+
+bool show_routing = false;
 
 int charging;
 int charge_finished;
@@ -482,34 +486,51 @@ void draw_page(sf::RenderWindow& win, map_page_t* page, int startx, int starty)
 	{
 		for(int y = 0; y < MAP_PAGE_W; y++)
 		{
-			uint32_t val = page->voxmap[y*MAP_PAGE_W+x];
-			/* really one at once:
-			if(val&(1<<cur_slice))
-				pixels[yy*xs+xx] = voxmap_colors[cur_slice];
-			else
-				pixels[yy*xs+xx] = voxmap_blank_color;
-			*/
-
-			pixels[(MAP_PAGE_W-1-y)*MAP_PAGE_W+x] = voxmap_blank_color;
-			for(int slice = 0; slice<cur_slice; slice++)
+			if(show_routing)
 			{
-				if(val&(1<<slice))
-					pixels[(MAP_PAGE_W-1-y)*MAP_PAGE_W+x] = voxmap_colors[slice];
+				int yyidx = y/32;
+				int yyoffs = y - yyidx*32;
+
+				uint32_t val;
+				if(page->routing[x][yyidx] & (1UL<<(31-yyoffs)))
+					val = routing_unallowed_color;
+				else
+					val = routing_allowed_color;
+
+				pixels[(MAP_PAGE_W-1-y)*MAP_PAGE_W+x] = val;
 			}
-
-
-			if( (((y&1) && (x&1))))
+			else
 			{
-				if(page->meta[(y/2)*(MAP_PAGE_W/2)+(x/2)].num_visited > 0)
+				uint32_t val = page->voxmap[y*MAP_PAGE_W+x];
+				/* really one at once:
+				if(val&(1<<cur_slice))
+					pixels[yy*xs+xx] = voxmap_colors[cur_slice];
+				else
+					pixels[yy*xs+xx] = voxmap_blank_color;
+				*/
+
+				pixels[(MAP_PAGE_W-1-y)*MAP_PAGE_W+x] = voxmap_blank_color;
+				for(int slice = 0; slice<cur_slice; slice++)
 				{
-					pixels[(MAP_PAGE_W-1-y)*MAP_PAGE_W+x] = visited_color;
+					if(val&(1<<slice))
+						pixels[(MAP_PAGE_W-1-y)*MAP_PAGE_W+x] = voxmap_colors[slice];
 				}
 
-				if(page->meta[(y/2)*(MAP_PAGE_W/2)+(x/2)].constraints & CONSTRAINT_FORBIDDEN)
-				{
-					pixels[(MAP_PAGE_W-1-y)*MAP_PAGE_W+x] = forbidden_color;
-				}
 
+				if( (((y&1) && (x&1))))
+				{
+					if(page->meta[(y/2)*(MAP_PAGE_W/2)+(x/2)].num_visited > 0)
+					{
+						pixels[(MAP_PAGE_W-1-y)*MAP_PAGE_W+x] = visited_color;
+					}
+				}
+				else
+				{
+					if(page->meta[(y/2)*(MAP_PAGE_W/2)+(x/2)].constraints & CONSTRAINT_FORBIDDEN)
+					{
+						pixels[(MAP_PAGE_W-1-y)*MAP_PAGE_W+x] = forbidden_color;
+					}
+				}
 			}
 
 		}
@@ -709,8 +730,10 @@ tof_raw_ambient8_t latest_tof_ambients[N_TOF_SENSORS];
 #define DATA_LOW 65534
 #define DATA_OVEREXP 65535
 
+//float red_dist  = 0.0;
+//float blue_dist = 9000.0;
 float red_dist  = 0.0;
-float blue_dist = 9000.0;
+float blue_dist = 1000.0;
 
 int tof_raw_alpha = 255; //80;
 
@@ -1013,6 +1036,7 @@ void draw_tof_raws(sf::RenderWindow& win)
 	float scale = 2.5;
 
 	static const int order[10] = { 5,4,3,2,1,0,9,8,7,6};
+//	static const int order[10] = { 7,4,3,2,1,0,9,8,7,6};
 //	static const int order[10] = { 0,1,2,3,4,5,6,7,8,9};
 
 //	sf::RectangleShape rect(sf::Vector2f( 10*(scale*60.0+4)  + 6, scale*TOF_XS_NARROW+(TOF_XS+TOF_XS_NARROW)*scale+6+scale*TOF_XS +17  +6));
@@ -1020,8 +1044,8 @@ void draw_tof_raws(sf::RenderWindow& win)
 //	rect.setFillColor(sf::Color(255,255,255,tof_raw_alpha));
 //	win.draw(rect);
 
-//	for(int ii=0; ii<10; ii++)
-	for(int ii=0; ii<1; ii++)
+	for(int ii=0; ii<10; ii++)
+//	for(int ii=0; ii<1; ii++)
 	{
 		bool mir_x = false;
 		bool mir_y = false;
@@ -1854,6 +1878,12 @@ drive_diag_t latest_drive_diag;
 void print_drive_diag(void* m)
 {
 	drive_diag_t *mm = m;
+
+	printf("Drive diagnostics  ang_err=%5.2f deg lin_err=%d mm cur (%d, %d), targ (%d, %d), id=%d, remaining %d mm, stop_flags=%08x\nrun=%u, dbg1=%d, dbg2=%d, dbg3=%d, dbg4=%d\n"
+	       "dbg5=%d  dbg6=%d, ang_speed_i=%d, lin_speed_i=%d\n",
+		ANG_I32TOFDEG(mm->ang_err), mm->lin_err, 
+		mm->cur_x, mm->cur_y, mm->target_x, mm->target_y, mm->id, mm->remaining, mm->micronavi_stop_flags, mm->run,
+		mm->dbg1, mm->dbg2, mm->dbg3, mm->dbg4, mm->dbg5, mm->dbg6, mm->ang_speed_i, mm->lin_speed_i);
 
 	memcpy(&latest_drive_diag, m, sizeof latest_drive_diag);
 }
@@ -2735,6 +2765,14 @@ int main(int argc, char** argv)
 				f_pressed[11] = true;
 			}} else f_pressed[11] = false;
 
+			if(sf::Keyboard::isKeyPressed(sf::Keyboard::R))
+			{
+				show_routing = true;
+			}
+			else
+				show_routing = false;
+
+
 			if(sf::Keyboard::isKeyPressed(sf::Keyboard::C))
 			{
 				num_pers_dbgpoints = 0;
@@ -2857,7 +2895,7 @@ int main(int argc, char** argv)
 
 		#endif
 
-		if(tof_raws_came < 45)
+		if(tof_raws_came < 100)
 		{
 			draw_tof_raws(win);
 		}
@@ -2876,7 +2914,7 @@ int main(int argc, char** argv)
 			sonar_wr++; if(sonar_wr >= SONAR_POINTS) sonar_wr = 0;
 		}
 
-		if(voxmap_alpha>0) voxmap_alpha-=5;
+		if(voxmap_alpha>0) voxmap_alpha-=1;
 		if(voxmap_alpha<0) voxmap_alpha=0;
 
 	}
