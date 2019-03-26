@@ -732,8 +732,8 @@ tof_raw_ambient8_t latest_tof_ambients[N_TOF_SENSORS];
 
 //float red_dist  = 0.0;
 //float blue_dist = 9000.0;
-float red_dist  = 0.0;
-float blue_dist = 1000.0;
+float red_dist  = 400.0;
+float blue_dist = 500.0;
 
 int tof_raw_alpha = 255; //80;
 
@@ -751,6 +751,8 @@ void draw_tof_dist(sf::RenderWindow& win, int xs, int ys, uint16_t* img, int x_o
 		{
 			int pixval;
 			pixval = img[iny*xs+inx];
+
+			if(inx == 60 && iny == 15) pixval=1000;
 
 			if(pixval == DATA_OVEREXP)
 			{
@@ -1035,16 +1037,16 @@ void draw_tof_raws(sf::RenderWindow& win)
 {
 	float scale = 2.5;
 
-	static const int order[10] = { 5,4,3,2,1,0,9,8,7,6};
-//	static const int order[10] = { 7,4,3,2,1,0,9,8,7,6};
-//	static const int order[10] = { 0,1,2,3,4,5,6,7,8,9};
+//	static const int order[10] = { 5,4,3,2,1,0,9,8,7,6};
+
+	static const int order[10] = { 6,5,4,2,1,0,9,8,7,6};
 
 //	sf::RectangleShape rect(sf::Vector2f( 10*(scale*60.0+4)  + 6, scale*TOF_XS_NARROW+(TOF_XS+TOF_XS_NARROW)*scale+6+scale*TOF_XS +17  +6));
 //	rect.setPosition(20-3, 20-20);
 //	rect.setFillColor(sf::Color(255,255,255,tof_raw_alpha));
 //	win.draw(rect);
 
-	for(int ii=0; ii<10; ii++)
+	for(int ii=0; ii<3; ii++)
 //	for(int ii=0; ii<1; ii++)
 	{
 		bool mir_x = false;
@@ -1802,6 +1804,14 @@ void print_test_msg3(void* m)
 {
 }
 
+void print_tof_slam_set(void* m)
+{
+}
+void print_compass_heading(void* m)
+{
+}
+
+
 
 void print_pwr_status(void* m)
 {
@@ -1879,12 +1889,12 @@ void print_drive_diag(void* m)
 {
 	drive_diag_t *mm = m;
 
-	printf("Drive diagnostics  ang_err=%5.2f deg lin_err=%d mm cur (%d, %d), targ (%d, %d), id=%d, remaining %d mm, stop_flags=%08x\nrun=%u, dbg1=%d, dbg2=%d, dbg3=%d, dbg4=%d\n"
+/*	printf("Drive diagnostics  ang_err=%5.2f deg lin_err=%d mm cur (%d, %d), targ (%d, %d), id=%d, remaining %d mm, stop_flags=%08x\nrun=%u, dbg1=%d, dbg2=%d, dbg3=%d, dbg4=%d\n"
 	       "dbg5=%d  dbg6=%d, ang_speed_i=%d, lin_speed_i=%d\n",
 		ANG_I32TOFDEG(mm->ang_err), mm->lin_err, 
 		mm->cur_x, mm->cur_y, mm->target_x, mm->target_y, mm->id, mm->remaining, mm->micronavi_stop_flags, mm->run,
 		mm->dbg1, mm->dbg2, mm->dbg3, mm->dbg4, mm->dbg5, mm->dbg6, mm->ang_speed_i, mm->lin_speed_i);
-
+*/
 	memcpy(&latest_drive_diag, m, sizeof latest_drive_diag);
 }
 
@@ -1987,7 +1997,7 @@ int parse_message(uint16_t id, uint32_t len)
 
 		case 436:
 		{
-			run_map_rsync();
+			//run_map_rsync();
 		}
 		break;
 
@@ -2029,6 +2039,8 @@ int parse_message(uint16_t id, uint32_t len)
 				sprintf(status_text, "Manual movement SUCCESS, start=(%d,%d)mm -> req=(%d,%d)mm, actual=(%d,%d)mm", mov_start_x, mov_start_y, mov_requested_x, mov_requested_y, mov_cur_x, mov_cur_y);
 			else
 				sprintf(status_text, "Manual movement STOPPED, start=(%d,%d)mm -> req=(%d,%d)mm, actual=(%d,%d)mm, statuscode=%u, HW obstacle flags=%08x", mov_start_x, mov_start_y, mov_requested_x, mov_requested_y, mov_cur_x, mov_cur_y, mov_status, mov_obstacle_flags);
+
+			printf("STATUS MESSAGE: %s\n", status_text);
 		}
 		break;
 
@@ -2053,20 +2065,24 @@ int parse_message(uint16_t id, uint32_t len)
 					mov_start_x, mov_start_y, mov_requested_x, mov_requested_y, mov_cur_x, mov_cur_y, mov_reroute_cnt);
 			else
 			{
-				static const char* fail_reasons[5] =
+				static const char* fail_reasons[6] =
 				{
 					"Success",
 					"Obstacles on map close to the beginning, can't get started",
 					"Got a good start thanks to backing off, but obstacles on the way later",
 					"Got a good start, but obstacles on the way later",
+					"Sudden micronavi stop (unmapped obstacle appeared, can't pass)",
 					"Unknown (newly implemented?) reason"
 				};
 
-				uint8_t reason = mov_status; if(reason >= 4) reason=4;
+				uint8_t reason = mov_status; if(reason >= 5) reason=5;
 
 				sprintf(status_text, "GAVE UP routefinding, reason: %u[%s], start=(%d,%d)mm -> req=(%d,%d)mm, actual=(%d,%d)mm, did reroute %d times (reason applies to the latest reroute)", mov_status, 
 					fail_reasons[reason], mov_start_x, mov_start_y, mov_requested_x, mov_requested_y, mov_cur_x, mov_cur_y, mov_reroute_cnt);
 			}
+
+			printf("STATUS MESSAGE: %s\n", status_text);
+
 		}
 		break;
 
