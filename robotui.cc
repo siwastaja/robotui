@@ -1997,7 +1997,7 @@ int parse_message(uint16_t id, uint32_t len)
 
 		case 436:
 		{
-			//run_map_rsync();
+			run_map_rsync();
 		}
 		break;
 
@@ -2722,10 +2722,10 @@ int main(int argc, char** argv)
 
 			if(sf::Keyboard::isKeyPressed(sf::Keyboard::F5)) { if(!f_pressed[5]) 
 			{
-				if(sf::Keyboard::isKeyPressed(sf::Keyboard::LShift) || sf::Keyboard::isKeyPressed(sf::Keyboard::RShift))
+//				if(sf::Keyboard::isKeyPressed(sf::Keyboard::LShift) || sf::Keyboard::isKeyPressed(sf::Keyboard::RShift))
 					run_map_rsync();
-				else
-					load_all_pages_on_disk(&world);
+//				else
+//					load_all_pages_on_disk(&world);
 				f_pressed[5] = true;
 			}} else f_pressed[5] = false;
 			if(sf::Keyboard::isKeyPressed(sf::Keyboard::F6)) { if(!f_pressed[6]) 
