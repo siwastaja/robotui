@@ -50,7 +50,7 @@
 
 #include "../robotsoft/mapping.h"
 #include "../robotsoft/datatypes.h"
-#include "../rn1-brain/comm.h"
+//#include "../rn1-brain/comm.h"
 #include "client_memdisk.h"
 #include "uthash.h"
 #include "utlist.h"
@@ -1806,7 +1806,52 @@ void print_test_msg3(void* m)
 
 void print_tof_slam_set(void* m)
 {
+
+	tof_slam_set_t* mm = m;
+	uint8_t idx = mm->sidx;
+	if(idx >= N_TOF_SENSORS)
+	{
+		printf("Invalid tof sensor idx=%u\n", idx);
+		return;
+	}
+
+	latest_tof_dists[idx].sensor_orientation = mm->sensor_orientation;
+
+	int set = 0;
+	if(mm->flags & TOF_SLAM_SET_FLAG_SET1_WIDE)
+		set = 1;	
+
+	for(int i=0; i<160*60; i++)
+	{
+		uint16_t val = (mm->sets[set].ampldist[i]&0xfff);
+		if(val == 0) val = DATA_LOW;
+		else if(val == 1) val = DATA_OVEREXP;
+		else val *= 8;
+		latest_tof_dists[idx].dist[i] = val;
+		latest_tof_ampls[idx].ampl[i] = ((mm->sets[set].ampldist[i]&0xf000)>>12)*16+15;
+	}
+
+
+
+	if(mm->flags & TOF_SLAM_SET_FLAG_SET1_NARROW)
+	{
+		for(int i=0; i<TOF_XS_NARROW*TOF_YS_NARROW; i++)
+		{
+			uint16_t val = (mm->sets[1].ampldist[i]&0xfff);
+			if(val == 0) val = DATA_LOW;
+			else if(val == 1) val = DATA_OVEREXP;
+			else val *= 8;
+			latest_tof_dists[idx].dist_narrow[i] = val;
+			latest_tof_ampls[idx].ampl_narrow[i] = ((mm->sets[1].ampldist[i]&0xf000)>>12)*16+15;
+		}
+	}
+
+//	printf("IDX = %d, ORIEN = %d\n", mm->sensor_idx, mm->sensor_orientation);
+	tof_raws_came = 0;
+
 }
+
+
 void print_compass_heading(void* m)
 {
 }
@@ -2218,7 +2263,6 @@ int main(int argc, char** argv)
 	decors[INFO_STATE_RIGHT].loadFromFile   ("decoration/right.png");
 	decors[INFO_STATE_CHARGING].loadFromFile("decoration/charging.png");
 	decors[INFO_STATE_DAIJUING].loadFromFile("decoration/party.png");
-
 
 
 	sfml_gui gui(win, arial);
@@ -2907,7 +2951,6 @@ int main(int argc, char** argv)
 			decor_sprite.setPosition(screen_x-180, (cur_info_state==INFO_STATE_DAIJUING)?(screen_y-240):(screen_y-220));
 			win.draw(decor_sprite);
 		}
-
 
 		#endif
 
