@@ -730,10 +730,10 @@ tof_raw_ambient8_t latest_tof_ambients[N_TOF_SENSORS];
 #define DATA_LOW 65534
 #define DATA_OVEREXP 65535
 
-//float red_dist  = 0.0;
-//float blue_dist = 9000.0;
-float red_dist  = 400.0;
-float blue_dist = 500.0;
+float red_dist  = 0.0;
+float blue_dist = 10000.0;
+//float red_dist  = 400.0;
+//float blue_dist = 500.0;
 
 int tof_raw_alpha = 255; //80;
 
@@ -751,8 +751,6 @@ void draw_tof_dist(sf::RenderWindow& win, int xs, int ys, uint16_t* img, int x_o
 		{
 			int pixval;
 			pixval = img[iny*xs+inx];
-
-			if(inx == 60 && iny == 15) pixval=1000;
 
 			if(pixval == DATA_OVEREXP)
 			{
@@ -1035,18 +1033,18 @@ bool draw_ambients = false;
 
 void draw_tof_raws(sf::RenderWindow& win)
 {
-	float scale = 2.5;
+	float scale = 1.0;
 
-//	static const int order[10] = { 5,4,3,2,1,0,9,8,7,6};
+	static const int order[10] = { 5,4,3,2,1,0,9,8,7,6};
 
-	static const int order[10] = { 6,5,4,2,1,0,9,8,7,6};
+//	static const int order[10] = { 6,5,4,2,1,0,9,8,7,6};
 
 //	sf::RectangleShape rect(sf::Vector2f( 10*(scale*60.0+4)  + 6, scale*TOF_XS_NARROW+(TOF_XS+TOF_XS_NARROW)*scale+6+scale*TOF_XS +17  +6));
 //	rect.setPosition(20-3, 20-20);
 //	rect.setFillColor(sf::Color(255,255,255,tof_raw_alpha));
 //	win.draw(rect);
 
-	for(int ii=0; ii<3; ii++)
+	for(int ii=0; ii<10; ii++)
 //	for(int ii=0; ii<1; ii++)
 	{
 		bool mir_x = false;
@@ -1809,6 +1807,8 @@ void print_tof_slam_set(void* m)
 
 	tof_slam_set_t* mm = m;
 	uint8_t idx = mm->sidx;
+//	printf("GOT TOF SLAM SET: IDX = %d, ORIEN = %d\n", idx, mm->sensor_orientation);
+
 	if(idx >= N_TOF_SENSORS)
 	{
 		printf("Invalid tof sensor idx=%u\n", idx);
@@ -1846,7 +1846,6 @@ void print_tof_slam_set(void* m)
 		}
 	}
 
-//	printf("IDX = %d, ORIEN = %d\n", mm->sensor_idx, mm->sensor_orientation);
 	tof_raws_came = 0;
 
 }
@@ -2042,7 +2041,7 @@ int parse_message(uint16_t id, uint32_t len)
 
 		case 436:
 		{
-			run_map_rsync();
+			//run_map_rsync();
 		}
 		break;
 
