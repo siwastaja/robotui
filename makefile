@@ -1,7 +1,7 @@
 CC = g++
 LD = g++
 
-CXXFLAGS = -fpermissive -Wall -Winline -D_GLIBCXX_USE_CXX11_ABI=0 -Wno-narrowing -Wno-write-strings -O3
+CXXFLAGS = -fpermissive -Wall -Winline -D_GLIBCXX_USE_CXX11_ABI=0 -Wno-narrowing -Wno-write-strings -O1 -g
 LDFLAGS = -D_GLIBCXX_USE_CXX11_ABI=0
 #-std=c++98
 
@@ -19,8 +19,12 @@ all: robotui
 	@rm -f $*.d.tmp
 
 robotui: $(ROBOTUI_OBJ)
-	$(LD) $(LDFLAGS) -o robotui $^ -lm -lsfml-network -lsfml-graphics -lsfml-window -lsfml-system
+	$(LD) $(LDFLAGS) -o robotui $^ -lm -lsfml-network -lsfml-graphics -lsfml-window -lsfml-system -lGL -lGLU
+# -lraylib
 
 e:
 	gedit --new-window makefile `echo "$(ROBOTUI_OBJ)" | sed s/"\.o"/"\.cc"/g` `echo "$(ROBOTUI_OBJ)" | sed s/"\.o"/"\.h"/g` &
 
+clean:
+	rm *.o
+	rm robotui

@@ -41,7 +41,8 @@
 #include <cstring>
 #include <SFML/Graphics.hpp>
 #include <SFML/Network.hpp>
-
+#include <SFML/OpenGL.hpp>
+#include <GL/glu.h>
 
 #define DEFINE_API_VARIABLES
 #include "../robotsoft/api_board_to_soft.h"
@@ -55,6 +56,15 @@
 #include "uthash.h"
 #include "utlist.h"
 #include "sfml_gui.h"
+
+#ifdef SFML_OPENGL_ES
+#define glClearDepth glClearDepthf
+#define glFrustum glFrustumf
+#endif
+
+#ifndef GL_SRGB8_ALPHA8
+#define GL_SRGB8_ALPHA8 0x8C43
+#endif
 
 
 #define I16FROMBUF(b_, s_)  ( ((uint16_t)b_[(s_)+0]<<8) | ((uint16_t)b_[(s_)+1]<<0) )
@@ -572,23 +582,6 @@ void draw_page(sf::RenderWindow& win, map_page_t* page, int startx, int starty)
 
 }
 
-int32_t hwdbg[10];
-
-void draw_hwdbg(sf::RenderWindow& win)
-{
-	sf::Text t;
-	char buf[500];
-	t.setFont(arial);
-	t.setCharacterSize(11);
-	t.setFillColor(sf::Color(0,0,0,190));
-	for(int i = 0; i<10; i++)
-	{
-		sprintf(buf, "dbg[%2i] = %11d (%08x)", i, hwdbg[i], hwdbg[i]);
-		t.setString(buf);
-		t.setPosition(10,screen_y-170-30 + 15*i);
-		win.draw(t);
-	}
-}
 
 pwr_status_t latest_pwr;
 
@@ -2203,6 +2196,82 @@ int parse_message(uint16_t id, uint32_t len)
 
 	return 0;
 }
+/*
+void OmaCube(Vector3 position, float width, float height, float length, Color color)
+{
+    float x = 0.0f;
+    float y = 0.0f;
+    float z = 0.0f;
+
+    if (rlCheckBufferLimit(36)) rlglDraw();
+
+    rlPushMatrix();
+        // NOTE: Transformation is applied in inverse order (scale -> rotate -> translate)
+        rlTranslatef(position.x, position.y, position.z);
+        //rlRotatef(45, 0, 1, 0);
+        //rlScalef(1.0f, 1.0f, 1.0f);   // NOTE: Vertices are directly scaled on definition
+
+        rlBegin(RL_TRIANGLES);
+            rlColor4ub(color.r, color.g, color.b, color.a);
+
+            // Front face
+            rlVertex3f(x - width/2, y - height/2, z + length/2);  // Bottom Left
+            rlVertex3f(x + width/2, y - height/2, z + length/2);  // Bottom Right
+            rlVertex3f(x - width/2, y + height/2, z + length/2);  // Top Left
+
+            rlVertex3f(x + width/2, y + height/2, z + length/2);  // Top Right
+            rlVertex3f(x - width/2, y + height/2, z + length/2);  // Top Left
+            rlVertex3f(x + width/2, y - height/2, z + length/2);  // Bottom Right
+
+            // Back face
+            rlVertex3f(x - width/2, y - height/2, z - length/2);  // Bottom Left
+            rlVertex3f(x - width/2, y + height/2, z - length/2);  // Top Left
+            rlVertex3f(x + width/2, y - height/2, z - length/2);  // Bottom Right
+
+            rlVertex3f(x + width/2, y + height/2, z - length/2);  // Top Right
+            rlVertex3f(x + width/2, y - height/2, z - length/2);  // Bottom Right
+            rlVertex3f(x - width/2, y + height/2, z - length/2);  // Top Left
+
+            // Top face
+            rlVertex3f(x - width/2, y + height/2, z - length/2);  // Top Left
+            rlVertex3f(x - width/2, y + height/2, z + length/2);  // Bottom Left
+            rlVertex3f(x + width/2, y + height/2, z + length/2);  // Bottom Right
+
+            rlVertex3f(x + width/2, y + height/2, z - length/2);  // Top Right
+            rlVertex3f(x - width/2, y + height/2, z - length/2);  // Top Left
+            rlVertex3f(x + width/2, y + height/2, z + length/2);  // Bottom Right
+
+            // Bottom face
+            rlVertex3f(x - width/2, y - height/2, z - length/2);  // Top Left
+            rlVertex3f(x + width/2, y - height/2, z + length/2);  // Bottom Right
+            rlVertex3f(x - width/2, y - height/2, z + length/2);  // Bottom Left
+
+            rlVertex3f(x + width/2, y - height/2, z - length/2);  // Top Right
+            rlVertex3f(x + width/2, y - height/2, z + length/2);  // Bottom Right
+            rlVertex3f(x - width/2, y - height/2, z - length/2);  // Top Left
+
+            // Right face
+            rlVertex3f(x + width/2, y - height/2, z - length/2);  // Bottom Right
+            rlVertex3f(x + width/2, y + height/2, z - length/2);  // Top Right
+            rlVertex3f(x + width/2, y + height/2, z + length/2);  // Top Left
+
+            rlVertex3f(x + width/2, y - height/2, z + length/2);  // Bottom Left
+            rlVertex3f(x + width/2, y - height/2, z - length/2);  // Bottom Right
+            rlVertex3f(x + width/2, y + height/2, z + length/2);  // Top Left
+
+            // Left face
+            rlVertex3f(x - width/2, y - height/2, z - length/2);  // Bottom Right
+            rlVertex3f(x - width/2, y + height/2, z + length/2);  // Top Left
+            rlVertex3f(x - width/2, y + height/2, z - length/2);  // Top Right
+
+            rlVertex3f(x - width/2, y - height/2, z + length/2);  // Bottom Left
+            rlVertex3f(x - width/2, y + height/2, z + length/2);  // Top Left
+            rlVertex3f(x - width/2, y - height/2, z - length/2);  // Bottom Right
+
+        rlEnd();
+    rlPopMatrix();
+}
+*/
 
 int main(int argc, char** argv)
 {
@@ -2250,6 +2319,126 @@ int main(int argc, char** argv)
 	sf::ContextSettings sets;
 	sets.antialiasingLevel = 8;
 	sf::RenderWindow win(sf::VideoMode(screen_x,screen_y), "PULUROBOT SLAM", sf::Style::Default, sets);
+
+	win.setActive(true);
+	printf("GPU: Vendor:   %s\n", glGetString(GL_VENDOR));
+
+
+	glEnable(GL_DEPTH_TEST);
+	glDepthMask(GL_TRUE);
+	glClearDepth(1.0);
+	glDisable(GL_LIGHTING);
+	glViewport(0, 0, win.getSize().x, win.getSize().y);
+	glMatrixMode(GL_PROJECTION);
+	glLoadIdentity();
+	GLfloat ratio = static_cast<float>(win.getSize().x) / win.getSize().y;
+//	glFrustum(-ratio, ratio, -1.f, 1.f, 1.f, 500.f);
+	gluPerspective(/*fov y:*/70.0, ratio, 0.1, 1000.0);
+
+//	glFrustum(-ratio, ratio, -1.f, 1.f, 0.01, 1000.0);
+
+
+static const GLfloat cube[] =
+        {
+            // positions    // texture coordinates
+            -20, -20, -20,  0, 0,
+            -20,  20, -20,  1, 0,
+            -20, -20,  20,  0, 1,
+            -20, -20,  20,  0, 1,
+            -20,  20, -20,  1, 0,
+            -20,  20,  20,  1, 1,
+
+             20, -20, -20,  0, 0,
+             20,  20, -20,  1, 0,
+             20, -20,  20,  0, 1,
+             20, -20,  20,  0, 1,
+             20,  20, -20,  1, 0,
+             20,  20,  20,  1, 1,
+
+            -20, -20, -20,  0, 0,
+             20, -20, -20,  1, 0,
+            -20, -20,  20,  0, 1,
+            -20, -20,  20,  0, 1,
+             20, -20, -20,  1, 0,
+             20, -20,  20,  1, 1,
+
+            -20,  20, -20,  0, 0,
+             20,  20, -20,  1, 0,
+            -20,  20,  20,  0, 1,
+            -20,  20,  20,  0, 1,
+             20,  20, -20,  1, 0,
+             20,  20,  20,  1, 1,
+
+            -20, -20, -20,  0, 0,
+             20, -20, -20,  1, 0,
+            -20,  20, -20,  0, 1,
+            -20,  20, -20,  0, 1,
+             20, -20, -20,  1, 0,
+             20,  20, -20,  1, 1,
+
+            -20, -20,  20,  0, 0,
+             20, -20,  20,  1, 0,
+            -20,  20,  20,  0, 1,
+            -20,  20,  20,  0, 1,
+             20, -20,  20,  1, 0,
+             20,  20,  20,  1, 1
+        };
+
+static const uint8_t colors[] =
+        {
+		255, 0, 0, 255,
+		255, 0, 0, 255,
+		255, 0, 0, 255,
+		255, 0, 0, 255,
+		255, 0, 0, 255,
+		255, 0, 0, 255,
+
+		255, 0, 0, 255,
+		255, 0, 0, 255,
+		255, 0, 0, 255,
+		255, 0, 0, 255,
+		255, 0, 0, 255,
+		255, 0, 0, 255,
+
+		255, 0, 0, 255,
+		255, 0, 0, 255,
+		255, 0, 0, 255,
+		255, 0, 0, 255,
+		255, 0, 0, 255,
+		255, 0, 0, 255,
+
+		255, 0, 0, 255,
+		255, 0, 0, 255,
+		255, 0, 0, 255,
+		255, 0, 0, 255,
+		255, 0, 0, 255,
+		255, 0, 0, 255,
+
+		255, 0, 0, 255,
+		255, 0, 0, 255,
+		255, 0, 0, 255,
+		255, 0, 0, 255,
+		255, 0, 0, 255,
+		255, 0, 0, 255,
+
+		255, 0, 0, 255,
+		255, 0, 0, 255,
+		255, 0, 0, 255,
+		255, 0, 0, 255,
+		255, 0, 0, 255,
+		255, 0, 0, 255
+
+	};
+
+
+	glEnableClientState(GL_VERTEX_ARRAY);
+	glVertexPointer(3, GL_FLOAT, 5 * sizeof(GLfloat), cube);
+	glDisableClientState(GL_NORMAL_ARRAY);
+	glEnableClientState(GL_COLOR_ARRAY);
+	glColorPointer(4, GL_UNSIGNED_BYTE, 0, colors);
+	win.setActive(false);
+
+
 	win.setFramerateLimit(15);
 
 	sf::Texture decors[NUM_DECORS];
@@ -2304,6 +2493,21 @@ int main(int argc, char** argv)
 
 	origin_x = mm_per_pixel*screen_x/2;
 	origin_y = mm_per_pixel*screen_y/2;
+
+
+
+	float campos_x = 0.0;
+	float campos_y = 0.0;
+	float campos_z = 0.0;
+
+	double camera_yaw = 0.0;
+	double camera_vertang = 0.0;
+
+
+	bool view_3d = false;
+
+	win.setActive(false);
+	win.pushGLStates();
 
 	int cnt = 0;
 	while(win.isOpen())
@@ -2729,6 +2933,9 @@ int main(int argc, char** argv)
 					{
 						double dx = click_x - prev_click_x; double dy = click_y - prev_click_y;
 						origin_x += dx; origin_y -= dy;
+						camera_yaw +=  dx*-0.001;
+						camera_vertang += dy*-0.001;
+
 					}
 					else
 					{
@@ -2765,10 +2972,10 @@ int main(int argc, char** argv)
 
 			if(sf::Keyboard::isKeyPressed(sf::Keyboard::F5)) { if(!f_pressed[5]) 
 			{
-//				if(sf::Keyboard::isKeyPressed(sf::Keyboard::LShift) || sf::Keyboard::isKeyPressed(sf::Keyboard::RShift))
+				if(sf::Keyboard::isKeyPressed(sf::Keyboard::LShift) || sf::Keyboard::isKeyPressed(sf::Keyboard::RShift))
 					run_map_rsync();
-//				else
-//					load_all_pages_on_disk(&world);
+				else
+					load_all_pages_on_disk(&world);
 				f_pressed[5] = true;
 			}} else f_pressed[5] = false;
 			if(sf::Keyboard::isKeyPressed(sf::Keyboard::F6)) { if(!f_pressed[6]) 
@@ -2842,7 +3049,49 @@ int main(int argc, char** argv)
 				dbg_boost = 1;
 			}
 
+
+			float speed = 8.0;
+
+			if(sf::Keyboard::isKeyPressed(sf::Keyboard::W))
+			{
+				campos_z += speed*cos(camera_yaw);
+				campos_x += speed*sin(camera_yaw);
+			}
+			if(sf::Keyboard::isKeyPressed(sf::Keyboard::S))
+			{
+				campos_z += -speed*cos(camera_yaw);
+				campos_x += -speed*sin(camera_yaw);
+			}
 			if(sf::Keyboard::isKeyPressed(sf::Keyboard::A))
+			{
+				campos_z += speed*cos(camera_yaw+(M_PI/2.0));
+				campos_x += speed*sin(camera_yaw+(M_PI/2.0));
+			}
+			if(sf::Keyboard::isKeyPressed(sf::Keyboard::D))
+			{
+				campos_z += speed*cos(camera_yaw-(M_PI/2.0));
+				campos_x += speed*sin(camera_yaw-(M_PI/2.0));
+			}
+
+			if(sf::Keyboard::isKeyPressed(sf::Keyboard::R))
+			{
+				campos_y += speed;
+			}
+			if(sf::Keyboard::isKeyPressed(sf::Keyboard::F))
+			{
+				campos_y += -speed;
+			}
+
+			if(sf::Keyboard::isKeyPressed(sf::Keyboard::Num3))
+			{
+				view_3d = true;
+			}
+			if(sf::Keyboard::isKeyPressed(sf::Keyboard::Num2))
+			{
+				view_3d = false;
+			}
+
+			if(sf::Keyboard::isKeyPressed(sf::Keyboard::G))
 			{
 				animate_slice = true;
 			}
@@ -2879,26 +3128,49 @@ int main(int argc, char** argv)
 
 		}
 
-		#ifndef TOF_DEV
-		win.clear(sf::Color(230,230,230));
 
-		draw_map(win);
 
-		draw_voxmap(win);
+		if(view_3d)
+		{
+			win.popGLStates();
+			win.setActive(true);
 
-		draw_robot(win);
+			glClear(GL_DEPTH_BUFFER_BIT);
+			glMatrixMode(GL_MODELVIEW);
+			glLoadIdentity();
 
-		draw_lidar(win, &lidar);
-		draw_sonar(win);
-		draw_tof3d_hmap(win, &hmap);
+			double camtarg_z = campos_z + 10.0*cos(camera_yaw);
+			double camtarg_x = campos_x + 10.0*sin(camera_yaw);
+			double camtarg_y = campos_y + 10.0*sin(camera_vertang);
+
+			gluLookAt(campos_x, campos_y, campos_z, camtarg_x, camtarg_y, camtarg_z, 0, 1, 0);
+			glDrawArrays(GL_TRIANGLES, 0, 36);
+
+			win.setActive(false);
+			win.pushGLStates();
+		}
+		else
+		{
+
+			draw_map(win);
+
+			draw_voxmap(win);
+
+			draw_robot(win);
+
+			draw_lidar(win, &lidar);
+			draw_sonar(win);
+			draw_tof3d_hmap(win, &hmap);
+			draw_route_mm(win, &some_route);
+			draw_drive_diag(win, &latest_drive_diag);
+		}
+
+
 		if(hmap_alpha_mult) hmap_alpha_mult-=8; if(hmap_alpha_mult < 40) hmap_alpha_mult = 40;
 
-		draw_hwdbg(win);
+
 		draw_bat_status(win);
 
-		draw_route_mm(win, &some_route);
-
-		draw_drive_diag(win, &latest_drive_diag);
 
 		draw_texts(win);
 		sf::RectangleShape rect(sf::Vector2f( gui_box_xs, gui_box_ys));
@@ -2951,7 +3223,6 @@ int main(int argc, char** argv)
 			win.draw(decor_sprite);
 		}
 
-		#endif
 
 		if(tof_raws_came < 100)
 		{
@@ -2961,6 +3232,8 @@ int main(int argc, char** argv)
 
 
 		win.display();
+
+		win.clear(sf::Color(230,230,230));
 
 		usleep(100);
 
