@@ -49,7 +49,6 @@
 #include "../robotsoft/api_soft_to_board.h"
 #undef DEFINE_API_VARIABLES
 
-#include "../robotsoft/mapping.h"
 #include "../robotsoft/datatypes.h"
 //#include "../rn1-brain/comm.h"
 #include "client_memdisk.h"
@@ -72,8 +71,6 @@
 #define I32TOBUF(i_, b_, s_) {(b_)[(s_)] = ((i_)>>24)&0xff; (b_)[(s_)+1] = ((i_)>>16)&0xff; (b_)[(s_)+2] = ((i_)>>8)&0xff; (b_)[(s_)+3] = ((i_)>>0)&0xff; }
 #define I16TOBUF(i_, b_, s_) {(b_)[(s_)] = ((i_)>>8)&0xff; (b_)[(s_)+1] = ((i_)>>0)&0xff; }
 
-
-world_t world;
 
 
 int pict_id, pict_bpp, pict_xs, pict_ys, dbg_boost;
@@ -216,117 +213,6 @@ sf::Color(255, 110, 190, 190),
 sf::Color(255, 110, 190, 190)
 };
 
-static int rsync_running = 0;
-
-static char *rsync_argv[4];
-
-void init_rsync_argv()
-{
-	rsync_argv[0] = (char*)malloc(100);
-	strcpy(rsync_argv[0], "/bin/bash");
-
-	rsync_argv[1] = (char*)malloc(100);
-	strcpy(rsync_argv[1], "map_sync.sh");
-
-	rsync_argv[2] = (char*)malloc(1024);
-
-	rsync_argv[3] = NULL;
-}
-
-void deinit_rsync_argv()
-{
-	free(rsync_argv[0]);
-	free(rsync_argv[1]);
-	free(rsync_argv[2]);
-}
-
-pid_t my_pid;
-static void run_map_rsync()
-{
-	if(rsync_running)
-	{
-		printf("rsync still running\n");
-		return;
-	}
-
-	if((my_pid = fork()) == 0)
-	{
-		if((execve(rsync_argv[0], (char **)rsync_argv , NULL)) == -1)
-		{
-			printf("run_map_rsync(): execve failed\n");
-		}
-	}
-	else
-	{
-		rsync_running = 1;
-	}
-}
-
-static int poll_map_rsync()
-{
-	if(!rsync_running)
-		return -998;
-
-	int status = 0;
-	if(waitpid(my_pid , &status , WNOHANG) == 0)
-		return -999;
-
-	rsync_running = 0;
-	printf("rsync returned %d\n", status);
-	return status;
-}
-
-
-void page_coords(int mm_x, int mm_y, int* pageidx_x, int* pageidx_y, int* pageoffs_x, int* pageoffs_y)
-{
-	int unit_x = mm_x / MAP_UNIT_W;
-	int unit_y = mm_y / MAP_UNIT_W;
-	unit_x += MAP_MIDDLE_UNIT;
-	unit_y += MAP_MIDDLE_UNIT;
-	int page_x = unit_x / MAP_PAGE_W;
-	int page_y = unit_y / MAP_PAGE_W;
-	int offs_x = unit_x - page_x*MAP_PAGE_W;
-	int offs_y = unit_y - page_y*MAP_PAGE_W;
-
-	*pageidx_x = page_x;
-	*pageidx_y = page_y;
-	*pageoffs_x = offs_x;
-	*pageoffs_y = offs_y;
-}
-
-void unit_coords(int mm_x, int mm_y, int* unit_x, int* unit_y)
-{
-	int unit_x_t = mm_x / MAP_UNIT_W;
-	int unit_y_t = mm_y / MAP_UNIT_W;
-	unit_x_t += MAP_MIDDLE_UNIT;
-	unit_y_t += MAP_MIDDLE_UNIT;
-
-	*unit_x = unit_x_t;
-	*unit_y = unit_y_t;
-}
-
-void mm_from_unit_coords(int unit_x, int unit_y, int* mm_x, int* mm_y)
-{
-	unit_x -= MAP_MIDDLE_UNIT;
-	unit_y -= MAP_MIDDLE_UNIT;
-
-	*mm_x = unit_x * MAP_UNIT_W;
-	*mm_y = unit_y * MAP_UNIT_W;
-}
-
-void page_coords_from_unit_coords(int unit_x, int unit_y, int* pageidx_x, int* pageidx_y, int* pageoffs_x, int* pageoffs_y)
-{
-	int page_x = unit_x / MAP_PAGE_W;
-	int page_y = unit_y / MAP_PAGE_W;
-	int offs_x = unit_x - page_x*MAP_PAGE_W;
-	int offs_y = unit_y - page_y*MAP_PAGE_W;
-
-	*pageidx_x = page_x;
-	*pageidx_y = page_y;
-	*pageoffs_x = offs_x;
-	*pageoffs_y = offs_y;
-}
-
 
 typedef struct
 {
@@ -345,48 +231,8 @@ typedef struct route_unit_T
 
 #define sq(x) ((x)*(x))
 
-void dev_draw_circle(sf::RenderWindow& win, int unit_x, int unit_y, int r, int g, int b, int dir)
-{
-	int x_mm, y_mm;
-	mm_from_unit_coords(unit_x, unit_y, &x_mm, &y_mm);
-
-	sf::CircleShape circ(14.0/mm_per_pixel);
-	circ.setOrigin(14.0/mm_per_pixel, 14.0/mm_per_pixel);
-	circ.setFillColor(sf::Color(r,g,b));
-
-	if(dir==-123)
-	{
-		circ.setFillColor(sf::Color::Transparent);
-		circ.setOutlineThickness(2.0);
-		circ.setOutlineColor(sf::Color(r,g,b));
-
-	}
-
-	circ.setPosition((x_mm+origin_x+MAP_UNIT_W/2)/mm_per_pixel,(-1*y_mm+origin_y+MAP_UNIT_W/2)/mm_per_pixel);
-	win.draw(circ);
-
-	if(dir >= 0)
-	{
-		sf::ConvexShape arrow(3);
-		arrow.setPoint(0, sf::Vector2f(0,-12.0/mm_per_pixel));
-		arrow.setPoint(1, sf::Vector2f(0,12.0/mm_per_pixel));
-		arrow.setPoint(2, sf::Vector2f(12.0/mm_per_pixel,0));
-
-		arrow.setOrigin(0,0);
-
-		arrow.setFillColor(sf::Color((r/2),(g/2),(b/2)));
-
-		arrow.setRotation((float)dir*(360.0/32.0));
-		arrow.setPosition((x_mm+origin_x+MAP_UNIT_W/2)/mm_per_pixel,(-1*y_mm+origin_y+MAP_UNIT_W/2)/mm_per_pixel);
-		win.draw(arrow);
-	}
-
-}
-
-void draw_map(sf::RenderWindow& win);
 
 #define TODEG(x) ((360.0*x)/(2.0*M_PI))
-
 
 route_unit_t *some_route = NULL;
 route_unit_t *p_cur_step = NULL;
@@ -480,109 +326,6 @@ void draw_drive_diag(sf::RenderWindow& win, drive_diag_t *mm)
 }
 
 
-//#define WALL_LEVEL(i) ((int)(i).num_obstacles*4)
-#define WALL_LEVEL(i) ((int)(i).num_obstacles*2)
-
-void draw_page(sf::RenderWindow& win, map_page_t* page, int startx, int starty)
-{
-	if(!page)
-		return;
-
-	static uint32_t pixels[MAP_PAGE_W*MAP_PAGE_W];
-
-	memset(pixels, 0xff, sizeof pixels);
-
-	for(int x = 0; x < MAP_PAGE_W; x++)
-	{
-		for(int y = 0; y < MAP_PAGE_W; y++)
-		{
-			if(show_routing)
-			{
-				int yyidx = y/32;
-				int yyoffs = y - yyidx*32;
-
-				uint32_t val;
-				if(page->routing[x][yyidx] & (1UL<<(31-yyoffs)))
-					val = routing_unallowed_color;
-				else
-					val = routing_allowed_color;
-
-				pixels[(MAP_PAGE_W-1-y)*MAP_PAGE_W+x] = val;
-			}
-			else
-			{
-				uint32_t val = page->voxmap[y*MAP_PAGE_W+x];
-				/* really one at once:
-				if(val&(1<<cur_slice))
-					pixels[yy*xs+xx] = voxmap_colors[cur_slice];
-				else
-					pixels[yy*xs+xx] = voxmap_blank_color;
-				*/
-
-				pixels[(MAP_PAGE_W-1-y)*MAP_PAGE_W+x] = voxmap_blank_color;
-				for(int slice = 0; slice<cur_slice; slice++)
-				{
-					if(val&(1<<slice))
-						pixels[(MAP_PAGE_W-1-y)*MAP_PAGE_W+x] = voxmap_colors[slice];
-				}
-
-
-				if( (((y&1) && (x&1))))
-				{
-					if(page->meta[(y/2)*(MAP_PAGE_W/2)+(x/2)].num_visited > 0)
-					{
-						pixels[(MAP_PAGE_W-1-y)*MAP_PAGE_W+x] = visited_color;
-					}
-				}
-				else
-				{
-					if(page->meta[(y/2)*(MAP_PAGE_W/2)+(x/2)].constraints & CONSTRAINT_FORBIDDEN)
-					{
-						pixels[(MAP_PAGE_W-1-y)*MAP_PAGE_W+x] = forbidden_color;
-					}
-				}
-			}
-
-		}
-	}
-
-	float scale = ((float)MAP_PAGE_W_MM/mm_per_pixel)/256.0f;
-
-	sf::Texture t;
-	t.create(256, 256);
-	t.setSmooth(false);
-	t.update((uint8_t*)pixels);
-	sf::Sprite sprite;
-
-//	sprite.setOrigin(0, 255);
-	sprite.setTexture(t);
-	sprite.setPosition((startx)/mm_per_pixel, (starty)/mm_per_pixel);
-	sprite.setScale(sf::Vector2f(scale, scale));
-	win.draw(sprite);
-
-	sf::RectangleShape b1(sf::Vector2f(MAP_PAGE_W_MM/mm_per_pixel, 1));
-	b1.setPosition((startx+0*MAP_UNIT_W)/mm_per_pixel, (starty+0*MAP_UNIT_W)/mm_per_pixel);
-	b1.setFillColor(sf::Color(0,0,0,64));
-	win.draw(b1);
-
-	sf::RectangleShape b2(sf::Vector2f(MAP_PAGE_W_MM/mm_per_pixel, 1));
-	b2.setPosition((startx+0*MAP_UNIT_W)/mm_per_pixel, (starty+256*MAP_UNIT_W)/mm_per_pixel);
-	b2.setFillColor(sf::Color(0,0,0,64));
-	win.draw(b2);
-
-	sf::RectangleShape b3(sf::Vector2f(1, MAP_PAGE_W_MM/mm_per_pixel));
-	b3.setPosition((startx+0*MAP_UNIT_W)/mm_per_pixel, (starty+0*MAP_UNIT_W)/mm_per_pixel);
-	b3.setFillColor(sf::Color(0,0,0,64));
-	win.draw(b3);
-
-	sf::RectangleShape b4(sf::Vector2f(1, MAP_PAGE_W_MM/mm_per_pixel));
-	b4.setPosition((startx+256*MAP_UNIT_W)/mm_per_pixel, (starty+0*MAP_UNIT_W)/mm_per_pixel);
-	b4.setFillColor(sf::Color(0,0,0,64));
-	win.draw(b4);
-
-}
-
-
 pwr_status_t latest_pwr;
 
 void draw_bat_status(sf::RenderWindow& win)
@@ -664,8 +407,6 @@ void draw_texts(sf::RenderWindow& win)
 
 	if(state_is_unsynchronized)
 		sprintf(buf, "Robot state is unsynchronized...");
-	else if(rsync_running)
-		sprintf(buf, "Syncing maps...");
 	else
 		sprintf(buf, "%s", click_mode_names[click_mode]);
 	t.setString(buf);
@@ -673,7 +414,7 @@ void draw_texts(sf::RenderWindow& win)
 	t.setFillColor(sf::Color(0,0,0,130));
 	t.setPosition(screen_x/2-bot_box_xs/2+11,screen_y-72-30);
 	win.draw(t);
-	t.setFillColor(rsync_running?sf::Color(0,190,20,200):click_mode_colors[click_mode]);
+	t.setFillColor(click_mode_colors[click_mode]);
 	t.setPosition(screen_x/2-bot_box_xs/2+10,screen_y-73-30);
 	win.draw(t);
 
@@ -1308,26 +1049,6 @@ void draw_picture(sf::RenderWindow& win)
 
 }
 
-
-void draw_map(sf::RenderWindow& win)
-{
-	for(int x = 0; x < MAP_W; x++)
-	{
-		for(int y = 0; y < MAP_W; y++)
-		{
-			if(world.pages[x][y])
-			{
-				int startx = -MAP_MIDDLE_UNIT*MAP_UNIT_W + x*MAP_PAGE_W*MAP_UNIT_W + origin_x;
-				int starty = -1*(-MAP_MIDDLE_UNIT*MAP_UNIT_W + (y+1)*MAP_PAGE_W*MAP_UNIT_W) + origin_y;
-
-//				if(x==127 && y==128)
-					draw_page(win, world.pages[x][y], startx, starty);
-			}
-		}
-	}
-}
-
-
 void draw_robot(sf::RenderWindow& win)
 {
 	sf::ConvexShape r(7);
@@ -1387,107 +1108,10 @@ typedef struct
 } point_t;
 */
 
-#define MAX_LIDAR_POINTS 720
-
-typedef struct
-{
-	pos_t robot_pos;
-	int n_points;
-	point_t scan[MAX_LIDAR_POINTS];
-} client_lidar_scan_t;
-
-typedef struct
-{
-	pos_t robot_pos;
-	int xsamples;
-	int ysamples;
-	int unit_size;
-	int8_t data[256*256];
-} client_tof3d_hmap_t;
-
-client_lidar_scan_t lidar;
 #define SONAR_POINTS 6
 sonar_point_t sonar[SONAR_POINTS];
 static int sonar_wr = 0;
 
-
-client_tof3d_hmap_t hmap;
-
-
-#define HMAP_ALPHA 255UL
-
-#define TOF3D_WALL           8 
-#define TOF3D_BIG_ITEM       7 
-#define TOF3D_LOW_CEILING    6 
-#define TOF3D_BIG_DROP       5
-#define TOF3D_SMALL_ITEM     4 
-#define TOF3D_SMALL_DROP     3
-#define TOF3D_THRESHOLD      2   
-#define TOF3D_FLOOR          1
-#define TOF3D_UNSEEN         0
-
-
-static const uint32_t hmap_colors[9] = {
-/* 0 UNSEEN     */ RGBA32(128UL,128UL,128UL, 0),
-/* 1 FLOOR      */ RGBA32(150UL,255UL,150UL, HMAP_ALPHA/2),
-/* 2 THRESHOLD  */ RGBA32(  0UL,200UL,200UL, HMAP_ALPHA),
-/* 3 SMALL_DROP */ RGBA32( 50UL,  0UL,200UL, HMAP_ALPHA),
-/* 4 SMALL_ITEM */ RGBA32(  0UL,255UL,  0UL, HMAP_ALPHA),
-/* 5 BIG_DROP   */ RGBA32(220UL,  0UL,220UL, HMAP_ALPHA),
-/* 6 LOW_CEILING*/ RGBA32(255UL,  0UL, 50UL, HMAP_ALPHA),
-/* 7 BIG_ITEM   */ RGBA32(220UL,100UL,  0UL, HMAP_ALPHA),
-/* 8 WALL       */ RGBA32(200UL,200UL,  0UL, HMAP_ALPHA)
-};
-
-
-static int hmap_alpha_mult = 255;
-
-void draw_tof3d_hmap(sf::RenderWindow& win, client_tof3d_hmap_t* hm)
-{
-	if(hm->xsamples == 0 || hm->ysamples == 0)
-		return;
-
-	if(hm->xsamples > 256 || hm->ysamples > 256)
-	{
-		printf("Invalid hmap size\n");
-		return;
-	}
-
-	static uint32_t pixels[256*256];
-
-
-	float scale = (float)hm->unit_size/mm_per_pixel;
-
-	for(int sy=0; sy < hm->ysamples; sy++)
-	{
-		for(int sx=0; sx < hm->xsamples; sx++)
-		{
-			uint8_t val = hm->data[sy*hm->xsamples+sx];
-			if(val > 8)
-			{
-				printf("draw_tof3d_hmap() invalid val %d at (%d, %d)\n", val, sx, sy);
-				continue;
-			}
-			pixels[sy*hm->xsamples+sx] = hmap_colors[val];
-		}
-	}
-
-	float ang = hm->robot_pos.ang;
-
-	sf::Texture t;
-	t.create(hm->xsamples, hm->ysamples);
-	t.setSmooth(false);
-	t.update((uint8_t*)pixels);
-	sf::Sprite sprite;
-	sprite.setTexture(t);
-	sprite.setOrigin(hm->xsamples/2.0, hm->ysamples/2.0);
-	sprite.setRotation(ang);
-	sprite.setPosition((hm->robot_pos.x+origin_x)/mm_per_pixel, (-1*hm->robot_pos.y+origin_y)/mm_per_pixel);
-	sprite.setScale(sf::Vector2f(scale, scale));
-	sprite.setColor(sf::Color(255,255,255,hmap_alpha_mult));
-	win.draw(sprite);
-
-}
 
 #define VOX_SEG_XS 100
 #define VOX_SEG_YS 100
@@ -1664,17 +1288,6 @@ void draw_voxmap(sf::RenderWindow& win)
 		cur_slice = 16;
 }
 
-void draw_lidar(sf::RenderWindow& win, client_lidar_scan_t* lid)
-{
-	for(int i=0; i < lid->n_points; i++)
-	{
-		sf::RectangleShape rect(sf::Vector2f(3,3));
-		rect.setOrigin(1.5,1.5);
-		rect.setPosition((lid->scan[i].x+origin_x)/mm_per_pixel, (-1*lid->scan[i].y+origin_y)/mm_per_pixel);
-		rect.setFillColor(sf::Color(255, 0, 0, 100));
-		win.draw(rect);
-	}
-}
 
 void draw_sonar(sf::RenderWindow& win)
 {
@@ -2291,14 +1904,10 @@ int main(int argc, char** argv)
 	rxbuf = new uint8_t[MAX_ACCEPTED_MSG_PAYLEN];
 
 
-	init_rsync_argv();
 	sprintf(status_text, "Status bar");
 
 	if(online)
 	{
-		strncpy(rsync_argv[2], argv[1], 1023);
-		rsync_argv[2][1023] = 0;
-
 		serv_ip = argv[1];
 		serv_port = atoi(argv[2]);
 
@@ -2322,6 +1931,8 @@ int main(int argc, char** argv)
 
 	win.setActive(true);
 	printf("GPU: Vendor:   %s\n", glGetString(GL_VENDOR));
+
+	init_memdisk();
 
 
 	glEnable(GL_DEPTH_TEST);
@@ -2439,7 +2050,7 @@ static const uint8_t colors[] =
 	win.setActive(false);
 
 
-	win.setFramerateLimit(15);
+	win.setFramerateLimit(30);
 
 	sf::Texture decors[NUM_DECORS];
 
@@ -2541,10 +2152,6 @@ static const uint8_t colors[] =
 				gui.buttons[but_state_vect[i]]->symbol = SYM_STOP;
 			}
 		}
-
-
-		if(poll_map_rsync() >= 0)
-			load_all_pages_on_disk(&world);
 
 
 		sf::Event event;
@@ -2972,10 +2579,7 @@ static const uint8_t colors[] =
 
 			if(sf::Keyboard::isKeyPressed(sf::Keyboard::F5)) { if(!f_pressed[5]) 
 			{
-				if(sf::Keyboard::isKeyPressed(sf::Keyboard::LShift) || sf::Keyboard::isKeyPressed(sf::Keyboard::RShift))
-					run_map_rsync();
-				else
-					load_all_pages_on_disk(&world);
+				load_all_pages_on_disk();
 				f_pressed[5] = true;
 			}} else f_pressed[5] = false;
 			if(sf::Keyboard::isKeyPressed(sf::Keyboard::F6)) { if(!f_pressed[6]) 
@@ -3152,21 +2756,21 @@ static const uint8_t colors[] =
 		else
 		{
 
-			draw_map(win);
+			//draw_full_map(win);
+			static int kakka = 0;
+			kakka++;
+			if(kakka > 30) kakka = 0;
+			draw_page_piles(win, (kakka>15)?1:0);
+
 
 			draw_voxmap(win);
 
 			draw_robot(win);
 
-			draw_lidar(win, &lidar);
 			draw_sonar(win);
-			draw_tof3d_hmap(win, &hmap);
 			draw_route_mm(win, &some_route);
 			draw_drive_diag(win, &latest_drive_diag);
 		}
-
-
-		if(hmap_alpha_mult) hmap_alpha_mult-=8; if(hmap_alpha_mult < 40) hmap_alpha_mult = 40;
 
 
 		draw_bat_status(win);
@@ -3251,6 +2855,5 @@ static const uint8_t colors[] =
 	}
 
 	delete rxbuf;
-	deinit_rsync_argv();
 	return 0;
 }

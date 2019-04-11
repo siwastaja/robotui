@@ -19,7 +19,7 @@ all: robotui
 	@rm -f $*.d.tmp
 
 robotui: $(ROBOTUI_OBJ)
-	$(LD) $(LDFLAGS) -o robotui $^ -lm -lsfml-network -lsfml-graphics -lsfml-window -lsfml-system -lGL -lGLU
+	$(LD) $(LDFLAGS) -o robotui $^ ../robotsoft/voxmap.o ../robotsoft/voxmap_memdisk.o -lm -lsfml-network -lsfml-graphics -lsfml-window -lsfml-system -lGL -lGLU
 # -lraylib
 
 e:
