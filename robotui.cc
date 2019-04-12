@@ -309,7 +309,7 @@ void draw_drive_diag(sf::RenderWindow& win, drive_diag_t *mm)
 	char buf[256];
 	t.setFont(arial);
 
-	sprintf(buf, "%.1f deg", ANG_I32TOFDEG(mm->ang_err));
+	sprintf(buf, "%.1f deg", ANGI32TOFDEG(mm->ang_err));
 	t.setString(buf);
 	t.setCharacterSize(12);
 	t.setFillColor(run?sf::Color(255,200,200,255):sf::Color(160,200,200,255));
@@ -1527,8 +1527,8 @@ void print_hw_pose(void* m)
 //	printf("HW pose  ang=%5.1f deg  x=%8d mm  y=%8d mm\n", ANG32TOFDEG(mm->ang), mm->x, mm->y);
 
 	cur_angle = ANG32TOFDEG(mm->ang);
-	cur_pitch = ANG_I32TOFDEG(mm->pitch);
-	cur_roll = ANG_I32TOFDEG(mm->roll);
+	cur_pitch = ANGI32TOFDEG(mm->pitch);
+	cur_roll = ANGI32TOFDEG(mm->roll);
 	cur_x = mm->x;
 	cur_y = mm->y;
 }
@@ -1541,7 +1541,7 @@ void print_drive_diag(void* m)
 
 /*	printf("Drive diagnostics  ang_err=%5.2f deg lin_err=%d mm cur (%d, %d), targ (%d, %d), id=%d, remaining %d mm, stop_flags=%08x\nrun=%u, dbg1=%d, dbg2=%d, dbg3=%d, dbg4=%d\n"
 	       "dbg5=%d  dbg6=%d, ang_speed_i=%d, lin_speed_i=%d\n",
-		ANG_I32TOFDEG(mm->ang_err), mm->lin_err, 
+		ANGI32TOFDEG(mm->ang_err), mm->lin_err, 
 		mm->cur_x, mm->cur_y, mm->target_x, mm->target_y, mm->id, mm->remaining, mm->micronavi_stop_flags, mm->run,
 		mm->dbg1, mm->dbg2, mm->dbg3, mm->dbg4, mm->dbg5, mm->dbg6, mm->ang_speed_i, mm->lin_speed_i);
 */
@@ -1933,6 +1933,7 @@ int main(int argc, char** argv)
 	printf("GPU: Vendor:   %s\n", glGetString(GL_VENDOR));
 
 	init_memdisk();
+	build_fullmap();
 
 
 	glEnable(GL_DEPTH_TEST);
@@ -2579,7 +2580,7 @@ static const uint8_t colors[] =
 
 			if(sf::Keyboard::isKeyPressed(sf::Keyboard::F5)) { if(!f_pressed[5]) 
 			{
-				load_all_pages_on_disk();
+				//load_all_pages_on_disk();
 				f_pressed[5] = true;
 			}} else f_pressed[5] = false;
 			if(sf::Keyboard::isKeyPressed(sf::Keyboard::F6)) { if(!f_pressed[6]) 
@@ -2732,7 +2733,15 @@ static const uint8_t colors[] =
 
 		}
 
-
+		static int use_fullmap;
+		static int manage;
+		manage++;
+		if(manage > 10)
+		{
+			use_fullmap = manage_page_pile_ranges();
+			printf("use_fullmap=%d\n", use_fullmap);
+			manage = 0;
+		}
 
 		if(view_3d)
 		{
@@ -2756,11 +2765,10 @@ static const uint8_t colors[] =
 		else
 		{
 
-			//draw_full_map(win);
-			static int kakka = 0;
-			kakka++;
-			if(kakka > 30) kakka = 0;
-			draw_page_piles(win, (kakka>15)?1:0);
+			if(use_fullmap)
+				draw_full_map(win);
+			else
+				draw_page_piles(win);
 
 
 			draw_voxmap(win);

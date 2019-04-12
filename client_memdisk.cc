@@ -145,132 +145,152 @@ typedef struct
 
 map_2d_page_pile_t piles[MAX_PAGES_X*MAX_PAGES_Y];
 
-int view2d_min_z = -10000;
-int view2d_max_z = 10000;
+int view2d_min_z = -1000;
+int view2d_max_z = 2200;
 
-void load_page_pile_from_disk(int px, int py, int rl, int do_reload)
+static void load_page_pile_from_disk(int px, int py, int rl, int do_reload)
 {
 	assert(px >= 0 && px < MAX_PAGES_X && py >= 0 && py < MAX_PAGES_Y && rl >= 0 && rl < 8);
 
-	int do_read = 0;
-	if(piles[py*MAX_PAGES_X+px].textures[rl])
+	//printf("load_page_pile(%d,%d,rl%d)\n", px, py, rl);
+	if(piles[py*MAX_PAGES_X+px].textures[rl] && !do_reload)
 	{
-		// Already loaded
-		if(do_reload)
+		return;
+	}
+
+	int32_t* max_z = malloc(VOX_XS[rl]*VOX_YS[rl]*sizeof(int32_t));
+	for(int i=0; i<VOX_XS[rl]*VOX_YS[rl]; i++)
+		max_z[i] = -1;
+
+	int file_found = 0;
+
+	for(int pz=0; pz < MAX_PAGES_Z; pz++)
+	{
+		voxmap_t voxmap;
+		
+		int ret = read_uncompressed_voxmap(&voxmap, gen_fname("./current_maps", px, py, pz, rl));
+
+		if(ret >= 0)
 		{
-			do_read = 1;
+			file_found = 1;
+			printf("INFO: Succesfully loaded file from the disk (%d,%d,%d,rl%d)\n", px, py, pz, rl);
+
+			assert(voxmap.header.xs == VOX_XS[rl]);
+			assert(voxmap.header.ys == VOX_YS[rl]);
+			assert(voxmap.header.zs == VOX_ZS[rl]);
+
+			for(int xy=0; xy<VOX_XS[rl]*VOX_YS[rl]; xy++)
+			{
+				int z;
+				for(z=VOX_ZS[rl]-1; z >= 0; z--)
+				{
+					if(voxmap.voxels[xy*VOX_ZS[rl]+z] & 0x0f)
+						break;
+				}
+				// z has highest z, or -1 if not voxel found at all
+				
+				// The pz loop goes from down to up: if we have anything, it's the biggest.
+				if(z > -1)
+				{
+					// Test if we are outside of display range: if we are, only apply if there is no in-range reading yet.
+					int new_max_z = pz*VOX_ZS[rl]+z;
+					new_max_z *= VOX_UNITS[rl];
+					new_max_z -= (MAX_PAGES_Z/2)*MAP_PAGE_Z_H_MM;
+
+					int prev_max_z = max_z[xy];
+					prev_max_z *= VOX_UNITS[rl];
+					prev_max_z -= (MAX_PAGES_Z/2)*MAP_PAGE_Z_H_MM;
+
+					if(new_max_z <= view2d_max_z ||  // this is ok as is
+					   (prev_max_z < view2d_min_z || prev_max_z > view2d_max_z)) // it's bigger: only replace if the previous max was out-range
+						max_z[xy] = pz*VOX_ZS[rl]+z;
+						
+				}
+			}
+			deinit_voxmap(&voxmap);
 		}
 	}
-	else
+
+	if(!file_found)
 	{
-		do_read = 1;
+		free(max_z);
+		return;
+	}
+
+	uint8_t* tmpimg = malloc(VOX_XS[rl]*VOX_YS[rl]*4);
+	assert(tmpimg);
+
+	for(int yy=0; yy<VOX_YS[rl]; yy++)
+	{
+		for(int xx=0; xx<VOX_XS[rl]; xx++)
+		{
+			int r, g, b, a;
+			if(max_z[yy*VOX_XS[rl]+xx] < 0)
+			{
+				r = 255;
+				g = 255;
+				b = 255;
+				a = 255;
+			}
+			else
+			{
+				int32_t out_z = max_z[yy*VOX_XS[rl]+xx];
+				out_z *= VOX_UNITS[rl]; // to mm
+				out_z -= (MAX_PAGES_Z/2)*MAP_PAGE_Z_H_MM; // to zero-referenced absolute mm
+
+				//const int biggest_possible = VOX_ZS[0]*MAX_PAGES_Z;
+
+				if(out_z < view2d_min_z)
+				{
+					r = 160;
+					g = 160;
+					b = 255;
+					a = 255;
+				}
+				else if(out_z > view2d_max_z)
+				{
+					r = 255;
+					g = 160;
+					b = 160;
+					a = 255;
+				}
+				else
+				{
+
+					int range = view2d_max_z - view2d_min_z;
+
+					r = (255*(out_z-view2d_min_z))/range;
+					if(r < 0) r = 0; else if(r > 255) r = 255;
+
+					b = (255*(view2d_max_z-out_z))/range;
+					if(b < 0) b = 0; else if(b > 255) b = 255;
+
+					g =  0; //256 - r - b;
+					if(g < 0) g = 0; else if(g > 255) g = 255;
+
+					a = 255;
+				}
+			}
+
+			// In SFML coordinate system, y is mirrored - mirror in the texture.
+			tmpimg[((VOX_YS[rl]-1-yy)*VOX_XS[rl]+xx)*4+0] = r;
+			tmpimg[((VOX_YS[rl]-1-yy)*VOX_XS[rl]+xx)*4+1] = g;
+			tmpimg[((VOX_YS[rl]-1-yy)*VOX_XS[rl]+xx)*4+2] = b;
+			tmpimg[((VOX_YS[rl]-1-yy)*VOX_XS[rl]+xx)*4+3] = a;
+		}
+	}
+
+	free(max_z);
+
+	if(!piles[py*MAX_PAGES_X+px].textures[rl])
+	{
 		piles[py*MAX_PAGES_X+px].textures[rl] = new sf::Texture;
 		piles[py*MAX_PAGES_X+px].textures[rl]->create(VOX_XS[rl], VOX_YS[rl]);
 		piles[py*MAX_PAGES_X+px].textures[rl]->setSmooth(false);
 	}
 
-	if(do_read)
-	{
-		int32_t* max_z = malloc(VOX_XS[rl]*VOX_YS[rl]*sizeof(int32_t));
-		for(int i=0; i<VOX_XS[rl]*VOX_YS[rl]; i++)
-			max_z[i] = -1;
-
-		for(int pz=0; pz < MAX_PAGES_Z; pz++)
-		{
-			voxmap_t voxmap;
-			
-			int ret = read_uncompressed_voxmap(&voxmap, gen_fname("./current_maps", px, py, pz, rl));
-
-			if(ret >= 0)
-			{
-				printf("INFO: Succesfully loaded file from the disk (%d,%d,%d,rl%d)\n", px, py, pz, rl);
-
-				assert(voxmap.header.xs == VOX_XS[rl]);
-				assert(voxmap.header.ys == VOX_YS[rl]);
-				assert(voxmap.header.zs == VOX_ZS[rl]);
-				for(int xy=0; xy<VOX_XS[rl]*VOX_YS[rl]; xy++)
-				{
-					int z;
-					for(z=VOX_ZS[rl]-1; z >= 0; z--)
-					{
-						if(voxmap.voxels[xy*VOX_ZS[rl]+z] & 0x0f)
-							break;
-					}
-					// z has highest z, or -1 if not voxel found at all
-					
-					// The pz loop goes from down to up: if we have anything, it's the biggest.
-					if(z > -1)
-						max_z[xy] = pz*VOX_ZS[rl]+z;
-				}
-			}
-		}
-
-		uint8_t* tmpimg = malloc(VOX_XS[rl]*VOX_YS[rl]*4);
-		assert(tmpimg);
-
-		for(int yy=0; yy<VOX_YS[rl]; yy++)
-		{
-			for(int xx=0; xx<VOX_XS[rl]; xx++)
-			{
-				int r, g, b, a;
-				if(max_z[yy*VOX_XS[rl]+xx] < 0)
-				{
-					r = 255;
-					g = 255;
-					b = 255;
-					a = 255;
-				}
-				else
-				{
-					int32_t out_z = max_z[yy*VOX_XS[rl]+xx];
-					out_z *= VOX_UNITS[rl]; // to mm
-					out_z -= (MAX_PAGES_Z/2)*MAP_PAGE_Z_H_MM; // to zero-referenced absolute mm
-
-					//const int biggest_possible = VOX_ZS[0]*MAX_PAGES_Z;
-
-					if(out_z < view2d_min_z)
-					{
-						r = 160;
-						g = 160;
-						b = 255;
-						a = 255;
-					}
-					else if(out_z > view2d_max_z)
-					{
-						r = 255;
-						g = 160;
-						b = 160;
-						a = 255;
-					}
-					else
-					{
-
-						int range = view2d_max_z - view2d_min_z;
-
-						r = (255*(out_z-view2d_min_z))/range;
-						if(r < 0) r = 0; else if(r > 255) r = 255;
-
-						b = (255*(view2d_max_z-out_z))/range;
-						if(b < 0) b = 0; else if(b > 255) b = 255;
-
-						g =  256 - r - b;
-						if(g < 0) g = 0; else if(g > 255) g = 255;
-
-						a = 255;
-					}
-				}
-
-				// In SFML coordinate system, y is mirrored - mirror in the texture.
-				tmpimg[((VOX_XS[rl]-1-yy)*VOX_XS[rl]+xx)*4+0] = r;
-				tmpimg[((VOX_XS[rl]-1-yy)*VOX_XS[rl]+xx)*4+1] = g;
-				tmpimg[((VOX_XS[rl]-1-yy)*VOX_XS[rl]+xx)*4+2] = b;
-				tmpimg[((VOX_XS[rl]-1-yy)*VOX_XS[rl]+xx)*4+3] = a;
-			}
-		}
-
-		piles[py*MAX_PAGES_X+px].textures[rl]->update(tmpimg);
-		free(tmpimg);
-	}
+	piles[py*MAX_PAGES_X+px].textures[rl]->update(tmpimg);
+	free(tmpimg);
 }
 
 
@@ -338,64 +358,214 @@ void draw_full_map(sf::RenderWindow& win)
 extern int screen_x;
 extern int screen_y;
 
-void draw_page_piles(sf::RenderWindow& win, int rl)
+void draw_page_piles(sf::RenderWindow& win)
 {
-	int pix_start_x = origin_x/mm_per_pixel - screen_x/2;
-	int pix_end_x = origin_x/mm_per_pixel + screen_x/2;
-	int pix_start_y = origin_y/mm_per_pixel - screen_y/2;
-	int pix_end_y = origin_y/mm_per_pixel + screen_y/2;
+	int pix_start_x = -1.0*origin_x/mm_per_pixel;
+	int pix_end_x = -1.0*origin_x/mm_per_pixel + screen_x;
+	int pix_start_y = origin_y/mm_per_pixel - screen_y;
+	int pix_end_y = origin_y/mm_per_pixel + 0;
 
 	int mm_start_x = pix_start_x*mm_per_pixel;
 	int mm_end_x = pix_end_x*mm_per_pixel;
 	int mm_start_y = pix_start_y*mm_per_pixel;
 	int mm_end_y = pix_end_y*mm_per_pixel;
 
-	po_coords_t poc_s = po_coords(mm_start_x, mm_start_y, 0, rl);
-	po_coords_t poc_e = po_coords(mm_end_x, mm_end_y, 0, rl);
+	// po_coords: rl argument only affects the offsets, not used, so rl=0 is fine.
+	po_coords_t poc_s = po_coords(mm_start_x, mm_start_y, 0, 0);
+	po_coords_t poc_e = po_coords(mm_end_x, mm_end_y, 0, 0);
 
-//	for(int py=poc_s.py; py<=poc_e.py; py++)
-	for(int py=256-16; py<=256+16; py++)
+	for(int py=poc_s.py; py<=poc_e.py; py++)
+//	for(int py=256-16; py<=256+16; py++)
 	{
-//		for(int px=poc_s.px; px<=poc_e.px; px++)
-		for(int px=256-16; px<=256+16; px++)
+		for(int px=poc_s.px; px<=poc_e.px; px++)
+//		for(int px=256-16; px<=256+16; px++)
 		{
-			if(piles[py*MAX_PAGES_X+px].textures[rl])
+			// Draw the highest resolution loaded:
+			for(int rl=0; rl<4; rl++)
 			{
-				sf::Sprite sprite;
+				if(piles[py*MAX_PAGES_X+px].textures[rl])
+				{
+					sf::Sprite sprite;
 
-				float scale = (float)MAP_PAGE_XY_W_MM/mm_per_pixel/(float)VOX_XS[rl];
+					float scale = (float)MAP_PAGE_XY_W_MM/mm_per_pixel/(float)VOX_XS[rl];
 
-				sprite.setOrigin(0, 0);
-				sprite.setTexture(*piles[py*MAX_PAGES_X+px].textures[rl]);
-				sprite.setPosition(
-					(origin_x+(px-MAX_PAGES_X/2)*MAP_PAGE_XY_W_MM)/mm_per_pixel - scale/2.0,
-					(origin_y+(-1.0*((py-MAX_PAGES_Y/2+1)*MAP_PAGE_XY_W_MM)))/mm_per_pixel + scale/2.0);
-				// +/- scale/2.0: align to the middle of the voxels.
-				sprite.setScale(sf::Vector2f(scale, scale));
-				win.draw(sprite);
+					sprite.setOrigin(0, 0);
+					sprite.setTexture(*piles[py*MAX_PAGES_X+px].textures[rl]);
+					sprite.setPosition(
+						(origin_x+(px-MAX_PAGES_X/2)*MAP_PAGE_XY_W_MM)/mm_per_pixel - scale/2.0,
+						(origin_y+(-1.0*((py-MAX_PAGES_Y/2+1)*MAP_PAGE_XY_W_MM)))/mm_per_pixel + scale/2.0);
+					// +/- scale/2.0: align to the middle of the voxels.
+					sprite.setScale(sf::Vector2f(scale, scale));
+					win.draw(sprite);
+
+					break;
+				}
 			}
 		}
 	}
 }
 
-void reload_page_pile_range()
+static inline void free_page_pile(int px, int py, int rl)
 {
-//	int startx = -MAP_MIDDLE_UNIT*MAP_UNIT_W + x*MAP_PAGE_W*MAP_UNIT_W + origin_x;
-//	int starty = -1*(-MAP_MIDDLE_UNIT*MAP_UNIT_W + (y+1)*MAP_PAGE_W*MAP_UNIT_W) + origin_y;
+//	printf("Freeing page pile %d,%d,rl%d\n", px, py, rl);
+	delete piles[py*MAX_PAGES_X+px].textures[rl];
+	piles[py*MAX_PAGES_X+px].textures[rl] = NULL;
+}
 
-//	int startx = + x*MAP_PAGE_W*MAP_UNIT_W + origin_x;
-//	int starty = -1*((y+1)*MAP_PAGE_W*MAP_UNIT_W) + origin_y;
+// Frees everything outside the range
+static void load_page_pile_range_from_disk(int sx, int ex, int sy, int ey, int rl, int do_reload)
+{
+	if(sx < 0) sx = 0;
+	if(ex > MAX_PAGES_X-1) ex = MAX_PAGES_X-1;
 
+	if(sy < 0) sy = 0;
+	if(ey > MAX_PAGES_Y-1) ey = MAX_PAGES_Y-1;
 
-	//int start_x_mm
+	for(int py=0; py<sy; py++)
+	{
+		for(int px=0; px<MAX_PAGES_X; px++)
+		{
+			if(piles[py*MAX_PAGES_X+px].textures[rl])
+				free_page_pile(px, py, rl);
+		}
+	}
 
+	for(int py=ey+1; py<MAX_PAGES_Y; py++)
+	{
+		for(int px=0; px<MAX_PAGES_X; px++)
+		{
+			if(piles[py*MAX_PAGES_X+px].textures[rl])
+				free_page_pile(px, py, rl);
+		}
+	}
 
-	//load_page_pile_from_disk(int px, int py, int rl, int do_reload)
+	for(int py=sy; py<=ey; py++)
+	{
+		for(int px=0; px<sx; px++)
+		{
+			if(piles[py*MAX_PAGES_X+px].textures[rl])
+				free_page_pile(px, py, rl);
+		}
 
+		for(int px=ex+1; px<MAX_PAGES_X; px++)
+		{
+			if(piles[py*MAX_PAGES_X+px].textures[rl])
+				free_page_pile(px, py, rl);
+		}
+
+	}
+
+	for(int py=sy; py<=ey; py++)
+	{
+		for(int px=sx; px<=ex; px++)
+		{
+			load_page_pile_from_disk(px, py, rl, do_reload);
+		}
+	}
+}
+
+static void free_resolevel_completely(int rl)
+{
+	printf("free_resolevel_completely(%d)\n", rl);
+	for(int py=0; py < MAX_PAGES_Y; py++)
+	{
+		for(int px=0; px < MAX_PAGES_X; px++)
+		{
+			if(piles[py*MAX_PAGES_X+px].textures[rl])
+				free_page_pile(px, py, rl);
+		}
+	}
 }
 
 
-void load_all_pages_on_disk()
+int manage_page_pile_ranges()
+{
+	int pix_start_x = -1.0*origin_x/mm_per_pixel;
+	int pix_end_x = -1.0*origin_x/mm_per_pixel + screen_x;
+	int pix_start_y = origin_y/mm_per_pixel - screen_y;
+	int pix_end_y = origin_y/mm_per_pixel + 0;
+
+	int mm_start_x = pix_start_x*mm_per_pixel;
+	int mm_end_x = pix_end_x*mm_per_pixel;
+	int mm_start_y = pix_start_y*mm_per_pixel;
+	int mm_end_y = pix_end_y*mm_per_pixel;
+
+	po_coords_t poc_s = po_coords(mm_start_x, mm_start_y, 0, 0);
+	po_coords_t poc_e = po_coords(mm_end_x, mm_end_y, 0, 0);
+
+
+	int px_start = poc_s.px;
+	int px_end = poc_e.px;
+	int py_start = poc_s.py;
+	int py_end = poc_e.py;
+
+	// Use a hysteresis band: don't free pages as easily as we load them.
+	static const int n_load_allowed[MAX_RESOLEVELS]  = {4*4, 16*16, 64*64, 128*128};
+	static const int n_free_required[MAX_RESOLEVELS] = {6*6, 20*20, 80*80, 160*160};
+
+	#define NEAR_EXTRA 1
+	#define FAR_EXTRA 4
+
+	int n_near = ((px_end+NEAR_EXTRA)-(px_start-NEAR_EXTRA))*((py_end+NEAR_EXTRA)-(py_start-NEAR_EXTRA));
+	int n_far = ((px_end+FAR_EXTRA)-(px_start-FAR_EXTRA))*((py_end+FAR_EXTRA)-(py_start-FAR_EXTRA));
+
+	// Load pages on up to 2 resolevels
+	// Free all other resolevels completely
+
+	int completely_free[MAX_RESOLEVELS] = {1, 1, 1, 1};
+
+	printf("n_near=%d, n_far=%d\n", n_near, n_far);
+
+	int n_rls_loaded = 0;
+	for(int rl=0; rl<4; rl++)
+	{
+		if(n_far <= n_load_allowed[rl])
+		{
+			load_page_pile_range_from_disk(px_start-FAR_EXTRA, px_end+FAR_EXTRA, py_start-FAR_EXTRA, py_end+FAR_EXTRA, rl, 0);
+			completely_free[rl] = 0;
+			n_rls_loaded++;
+		}
+		else if(n_near <= n_load_allowed[rl])
+		{
+			load_page_pile_range_from_disk(px_start-NEAR_EXTRA, px_end+NEAR_EXTRA, py_start-NEAR_EXTRA, py_end+NEAR_EXTRA, rl, 0);
+			completely_free[rl] = 0;
+			n_rls_loaded++;
+		}
+
+		if(n_rls_loaded >= 2)
+			break;
+	}
+
+	int use_fullmap = 0;
+	for(int rl=0; rl<4; rl++)
+	{
+		if(n_near > n_free_required[rl] || completely_free[rl])
+		{
+			free_resolevel_completely(rl);
+			use_fullmap++;
+		}
+	}
+
+
+	int n_loaded[4] = {0,0,0,0};
+	for(int py=0; py<MAX_PAGES_Y; py++)
+	{
+		for(int px=0; px<MAX_PAGES_X; px++)
+		{
+			for(int rl=0; rl<4; rl++)
+			{
+				if(piles[py*MAX_PAGES_X+px].textures[rl])
+					n_loaded[rl]++;
+			}
+		}
+	}
+	printf("manage: n_loaded per rl: %4d  %4d  %4d  %4d\n", n_loaded[0],n_loaded[1],n_loaded[2],n_loaded[3]);
+
+	return use_fullmap>=4;
+}
+
+
+void build_fullmap()
 {
 	memset(pages_exist, 0, MAX_PAGES_X*MAX_PAGES_Y);
 	DIR *d;
@@ -418,7 +588,7 @@ void load_all_pages_on_disk()
 				if(pz+1 > highest_pz[py*MAX_PAGES_X+px])
 					highest_pz[py*MAX_PAGES_X+px] = pz+1;
 
-				load_page_pile_from_disk(px, py, rl, 0);
+			//	load_page_pile_from_disk(px, py, rl, 0);
 			}
 
 		}
@@ -431,25 +601,35 @@ void load_all_pages_on_disk()
 	assert(tmp);
 	memset(tmp, 255, sizeof(uint8_t)*MAX_PAGES_X*MAX_PAGES_Y*4);
 
-	for(int i=0; i<MAX_PAGES_X*MAX_PAGES_Y; i++)
+	for(int yy=0; yy<MAX_PAGES_Y; yy++)
 	{
-		if(highest_pz[i] > 0)
+		for(int xx=0; xx<MAX_PAGES_X; xx++)
 		{
-			int r, g, b;
-			r = -1*(MAX_PAGES_Z-2*highest_pz[i])*(256/MAX_PAGES_Z);
-			if(r < 0) r=0; else if(r>255) r=255;
+			if(highest_pz[yy*MAX_PAGES_X+xx] > 0)
+			{
+				int r, g, b;
+	/*
+				r = -1*(MAX_PAGES_Z-2*highest_pz[i])*(256/MAX_PAGES_Z);
+				if(r < 0) r=0; else if(r>255) r=255;
 
-			b = +1*(MAX_PAGES_Z-2*highest_pz[i])*(256/MAX_PAGES_Z);
-			if(b < 0) b=0; else if(b>255) b=255;
+				b = +1*(MAX_PAGES_Z-2*highest_pz[i])*(256/MAX_PAGES_Z);
+				if(b < 0) b=0; else if(b>255) b=255;
+	*/
+				r = (255*(highest_pz[yy*MAX_PAGES_X+xx]-0))/MAX_PAGES_Z;
+				if(r < 0) r = 0; else if(r > 255) r = 255;
 
-			g = 256 - r - b;
-			if(g < 0) g=0; else if(g>255) g=255;
+				b = (255*(MAX_PAGES_Z-highest_pz[yy*MAX_PAGES_X+xx]))/MAX_PAGES_Z;
+				if(b < 0) b = 0; else if(b > 255) b = 255;
 
-			tmp[i*4+0] = r;
-			tmp[i*4+1] = g;
-			tmp[i*4+2] = b;
-			tmp[i*4+3] = 255;
-		}	
+				g = 0; //256 - r - b;
+				if(g < 0) g=0; else if(g>255) g=255;
+
+				tmp[((MAX_PAGES_Y-1-yy)*MAX_PAGES_X+xx)*4+0] = r;
+				tmp[((MAX_PAGES_Y-1-yy)*MAX_PAGES_X+xx)*4+1] = g;
+				tmp[((MAX_PAGES_Y-1-yy)*MAX_PAGES_X+xx)*4+2] = b;
+				tmp[((MAX_PAGES_Y-1-yy)*MAX_PAGES_X+xx)*4+3] = 255;
+			}	
+		}
 	}
 
 	free(highest_pz);

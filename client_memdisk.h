@@ -27,10 +27,11 @@
 void init_memdisk();
 
 void draw_full_map(sf::RenderWindow& win);
-void draw_page_piles(sf::RenderWindow& win, int rl);
+void draw_page_piles(sf::RenderWindow& win);
 
 
-void load_all_pages_on_disk();
+void build_fullmap();
+int manage_page_pile_ranges();
 
 
 #endif
