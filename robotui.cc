@@ -88,7 +88,7 @@ int screen_y = 700;
 
 double click_x, click_y;
 
-double mm_per_pixel = 10.0;
+double mm_per_pixel = 40.0;
 double origin_x = 0;
 double origin_y = 0;
 
@@ -124,6 +124,10 @@ double lidar_yoffs = 0.0;
 
 float offset_z = 400.0;
 float blue_z = 1200.0;
+
+extern int view2d_min_z;
+extern int view2d_max_z;
+
 
 int cur_slice = 0;
 int max_voxmap_alpha = 200;
@@ -384,11 +388,19 @@ void draw_texts(sf::RenderWindow& win)
 	t.setFont(arial);
 
 	const int bot_box_xs = 400;
-	const int bot_box_ys = 63;
+	const int bot_box_ys = 83;
 	sf::RectangleShape rect(sf::Vector2f( bot_box_xs, bot_box_ys));
 	rect.setPosition(screen_x/2 - bot_box_xs/2, screen_y-bot_box_ys-10-30);
 	rect.setFillColor(sf::Color(255,255,255,160));
 	win.draw(rect);
+
+
+	sprintf(buf, "z view range: %d .. %d mm", view2d_min_z, view2d_max_z);
+	t.setString(buf);
+	t.setCharacterSize(14);
+	t.setFillColor(sf::Color(0,0,0,255));
+	t.setPosition(screen_x/2-bot_box_xs/2+10,screen_y-90-30);
+	win.draw(t);
 
 
 	sprintf(buf, "robot: x=%d  y=%d  mm  (yaw=%.1f pitch=%.1f roll=%.1f )", (int)cur_x, (int)cur_y, cur_angle, cur_pitch, cur_roll);
@@ -2580,16 +2592,21 @@ static const uint8_t colors[] =
 
 			if(sf::Keyboard::isKeyPressed(sf::Keyboard::F5)) { if(!f_pressed[5]) 
 			{
-				//load_all_pages_on_disk();
+				map_set_1();
+				reload_map();
 				f_pressed[5] = true;
 			}} else f_pressed[5] = false;
 			if(sf::Keyboard::isKeyPressed(sf::Keyboard::F6)) { if(!f_pressed[6]) 
 			{
+				map_set_2();
+				reload_map();
+
+/*
 				if(sf::Keyboard::isKeyPressed(sf::Keyboard::LShift) || sf::Keyboard::isKeyPressed(sf::Keyboard::RShift))
 				{
 					maintenance_msg(6); // rn1host git pull + restart
 					win.close();
-				}
+				}*/
 				f_pressed[6] = true;
 			}} else f_pressed[6] = false;
 			if(sf::Keyboard::isKeyPressed(sf::Keyboard::F7)) { if(!f_pressed[7]) 
@@ -2703,18 +2720,25 @@ static const uint8_t colors[] =
 			else
 				animate_slice = false;
 
-
 			if(sf::Keyboard::isKeyPressed(sf::Keyboard::Up))
 			{
+				view2d_max_z += 100;
+				reload_map();
 			}
 			if(sf::Keyboard::isKeyPressed(sf::Keyboard::Down))
 			{
+				view2d_max_z -= 100;
+				reload_map();
 			}
 			if(sf::Keyboard::isKeyPressed(sf::Keyboard::Left))
 			{
+				view2d_min_z -= 100;
+				reload_map();
 			}
 			if(sf::Keyboard::isKeyPressed(sf::Keyboard::Right))
 			{
+				view2d_min_z += 100;
+				reload_map();
 			}
 
 			if(sf::Keyboard::isKeyPressed(sf::Keyboard::Return))

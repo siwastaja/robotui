@@ -145,9 +145,13 @@ typedef struct
 
 map_2d_page_pile_t piles[MAX_PAGES_X*MAX_PAGES_Y];
 
-int view2d_min_z = -1000;
-int view2d_max_z = 2200;
+int view2d_min_z = -300;
+int view2d_max_z = 1900;
 
+static char mapdir[1024];
+
+//static int display_limit[4] = {1, 3, 6, 6};
+static int display_limit[4]   = {3, 5, 15, 15};
 static void load_page_pile_from_disk(int px, int py, int rl, int do_reload)
 {
 	assert(px >= 0 && px < MAX_PAGES_X && py >= 0 && py < MAX_PAGES_Y && rl >= 0 && rl < 8);
@@ -160,7 +164,7 @@ static void load_page_pile_from_disk(int px, int py, int rl, int do_reload)
 
 	int32_t* max_z = malloc(VOX_XS[rl]*VOX_YS[rl]*sizeof(int32_t));
 	for(int i=0; i<VOX_XS[rl]*VOX_YS[rl]; i++)
-		max_z[i] = -1;
+		max_z[i] = INT32_MIN;
 
 	int file_found = 0;
 
@@ -168,7 +172,7 @@ static void load_page_pile_from_disk(int px, int py, int rl, int do_reload)
 	{
 		voxmap_t voxmap;
 		
-		int ret = read_uncompressed_voxmap(&voxmap, gen_fname("./current_maps", px, py, pz, rl));
+		int ret = read_uncompressed_voxmap(&voxmap, gen_fname(mapdir, px, py, pz, rl));
 
 		if(ret >= 0)
 		{
@@ -181,10 +185,12 @@ static void load_page_pile_from_disk(int px, int py, int rl, int do_reload)
 
 			for(int xy=0; xy<VOX_XS[rl]*VOX_YS[rl]; xy++)
 			{
+				int max_accepted_oz = (view2d_max_z + (MAX_PAGES_Z/2)*MAP_PAGE_Z_H_MM)/VOX_UNITS[rl] - pz*VOX_ZS[rl];
+				if(max_accepted_oz > VOX_ZS[rl]-1) max_accepted_oz = VOX_ZS[rl]-1;
 				int z;
-				for(z=VOX_ZS[rl]-1; z >= 0; z--)
+				for(z=max_accepted_oz; z >= 0; z--)
 				{
-					if(voxmap.voxels[xy*VOX_ZS[rl]+z] & 0x0f)
+					if((voxmap.voxels[xy*VOX_ZS[rl]+z] & 0x0f) >= display_limit[rl])
 						break;
 				}
 				// z has highest z, or -1 if not voxel found at all
@@ -197,13 +203,13 @@ static void load_page_pile_from_disk(int px, int py, int rl, int do_reload)
 					new_max_z *= VOX_UNITS[rl];
 					new_max_z -= (MAX_PAGES_Z/2)*MAP_PAGE_Z_H_MM;
 
-					int prev_max_z = max_z[xy];
-					prev_max_z *= VOX_UNITS[rl];
-					prev_max_z -= (MAX_PAGES_Z/2)*MAP_PAGE_Z_H_MM;
+//					int prev_max_z = max_z[xy];
+					//prev_max_z *= VOX_UNITS[rl];
+					//prev_max_z -= (MAX_PAGES_Z/2)*MAP_PAGE_Z_H_MM;
 
-					if(new_max_z <= view2d_max_z ||  // this is ok as is
-					   (prev_max_z < view2d_min_z || prev_max_z > view2d_max_z)) // it's bigger: only replace if the previous max was out-range
-						max_z[xy] = pz*VOX_ZS[rl]+z;
+//					if(new_max_z <= view2d_max_z) //||  // this is ok as is
+//					   (prev_max_z < view2d_min_z || prev_max_z > view2d_max_z)) // it's bigger: only replace if the previous max was out-range
+						max_z[xy] = new_max_z; //pz*VOX_ZS[rl]+z;
 						
 				}
 			}
@@ -225,7 +231,7 @@ static void load_page_pile_from_disk(int px, int py, int rl, int do_reload)
 		for(int xx=0; xx<VOX_XS[rl]; xx++)
 		{
 			int r, g, b, a;
-			if(max_z[yy*VOX_XS[rl]+xx] < 0)
+			if(max_z[yy*VOX_XS[rl]+xx] == INT32_MIN)
 			{
 				r = 255;
 				g = 255;
@@ -235,37 +241,58 @@ static void load_page_pile_from_disk(int px, int py, int rl, int do_reload)
 			else
 			{
 				int32_t out_z = max_z[yy*VOX_XS[rl]+xx];
-				out_z *= VOX_UNITS[rl]; // to mm
-				out_z -= (MAX_PAGES_Z/2)*MAP_PAGE_Z_H_MM; // to zero-referenced absolute mm
+				//out_z *= VOX_UNITS[rl]; // to mm
+				//out_z -= (MAX_PAGES_Z/2)*MAP_PAGE_Z_H_MM; // to zero-referenced absolute mm
 
 				//const int biggest_possible = VOX_ZS[0]*MAX_PAGES_Z;
 
 				if(out_z < view2d_min_z)
 				{
-					r = 160;
-					g = 160;
+					r = 190;
+					g = 190;
 					b = 255;
 					a = 255;
 				}
 				else if(out_z > view2d_max_z)
 				{
 					r = 255;
-					g = 160;
-					b = 160;
+					g = 190;
+					b = 190;
 					a = 255;
 				}
 				else
 				{
 
+#define COLMAX 220
 					int range = view2d_max_z - view2d_min_z;
 
-					r = (255*(out_z-view2d_min_z))/range;
+//					r = (255*(out_z-view2d_min_z))/range;
+					r = (2*COLMAX*(out_z-view2d_min_z))/(range)-COLMAX;
+					if(r < 0) r = 0; else if(r > COLMAX) r = COLMAX;
+
+//					b = (COLMAX*(view2d_max_z-out_z))/range;
+					b = (2*COLMAX*(view2d_max_z-out_z))/(range)-COLMAX;
+					if(b < 0) b = 0; else if(b > COLMAX) b = COLMAX;
+
+					//g =  0;
+					g =  COLMAX - r - b;
+					if(g < 0) g = 0; else if(g > COLMAX) g = COLMAX;
+
+					int ysq = 2000/(50+abs(r-g));
+					r += ysq;
+					g += ysq;
+
+//					r = r-r/4 + 35;
+//					g = g-g/4 + 35;
+//					b = b-b/4 + 35;
+
+					r += b/3;
+					g += b/3;
+
+					r += 25;
+					g += 25;
+					b += 25;
 					if(r < 0) r = 0; else if(r > 255) r = 255;
-
-					b = (255*(view2d_max_z-out_z))/range;
-					if(b < 0) b = 0; else if(b > 255) b = 255;
-
-					g =  0; //256 - r - b;
 					if(g < 0) g = 0; else if(g > 255) g = 255;
 
 					a = 255;
@@ -297,6 +324,7 @@ static void load_page_pile_from_disk(int px, int py, int rl, int do_reload)
 
 void init_memdisk()
 {
+	map_set_1();
 	assert(tex_full_map.create(MAX_PAGES_X, MAX_PAGES_Y));
 
 	// Create a white base image, instead of random junk
@@ -501,7 +529,7 @@ int manage_page_pile_ranges()
 
 	// Use a hysteresis band: don't free pages as easily as we load them.
 	static const int n_load_allowed[MAX_RESOLEVELS]  = {4*4, 16*16, 64*64, 128*128};
-	static const int n_free_required[MAX_RESOLEVELS] = {6*6, 20*20, 80*80, 160*160};
+	static const int n_free_required[MAX_RESOLEVELS] = {7*7, 20*20, 80*80, 160*160};
 
 	#define NEAR_EXTRA 1
 	#define FAR_EXTRA 4
@@ -564,13 +592,22 @@ int manage_page_pile_ranges()
 	return use_fullmap>=4;
 }
 
+void map_set_1()
+{
+	strncpy(mapdir, "./current_maps", 1023);
+}
+void map_set_2()
+{
+	strncpy(mapdir, "./current_maps_2", 1023);
+}
+
 
 void build_fullmap()
 {
 	memset(pages_exist, 0, MAX_PAGES_X*MAX_PAGES_Y);
 	DIR *d;
 	struct dirent *dir;
-	d = opendir("./current_maps");
+	d = opendir(mapdir);
 
 	uint8_t* highest_pz = calloc(MAX_PAGES_X*MAX_PAGES_Y, sizeof(uint8_t));
 	assert(highest_pz);
@@ -636,6 +673,15 @@ void build_fullmap()
 
 	tex_full_map.update(tmp);
 	free(tmp);
+}
+
+void reload_map()
+{
+	build_fullmap();
+	for(int rl=0; rl<4; rl++)
+		free_resolevel_completely(rl);
+
+	manage_page_pile_ranges();
 }
 
 

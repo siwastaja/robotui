@@ -32,6 +32,10 @@ void draw_page_piles(sf::RenderWindow& win);
 
 void build_fullmap();
 int manage_page_pile_ranges();
+void reload_map();
+
+void map_set_1();
+void map_set_2();
 
 
 #endif
