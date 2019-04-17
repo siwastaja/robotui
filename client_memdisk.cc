@@ -101,7 +101,7 @@ static void load_page_pile_from_disk(int px, int py, int rl, int do_reload)
 		if(ret >= 0)
 		{
 			file_found = 1;
-			printf("INFO: Succesfully loaded file from the disk (%d,%d,%d,rl%d)\n", px, py, pz, rl);
+//			printf("INFO: Succesfully loaded file from the disk (%d,%d,%d,rl%d)\n", px, py, pz, rl);
 
 			assert(voxmap.header.xs == VOX_XS[rl]);
 			assert(voxmap.header.ys == VOX_YS[rl]);
@@ -627,27 +627,12 @@ void resize_opengl(sf::RenderWindow& win)
 	projection = glm::perspective(glm::radians(60.0f), ratio, 0.1f, 10000.0f);
 }
 
-void init_opengl(sf::RenderWindow& win)
-{
-	glewInit();
-	if(shader.loadFromFile("vertex_shader.glsl", "fragment_shader.glsl") == false)
-		abort();
+// pieces per map page for each resolevel
+static int pieces_x[MAX_RESOLEVELS];
+static int pieces_y[MAX_RESOLEVELS];
+static int pieces_z[MAX_RESOLEVELS];
 
-	glEnable(GL_CULL_FACE);
-	glCullFace(GL_BACK);
-	glEnable(GL_DEPTH_TEST);
-	glDepthMask(GL_TRUE);
-	glClearDepth(1.0);
-
-	sf::Shader::bind(&shader);
-	int shader_id = shader.getNativeHandle();
-	pvm_loc = glGetUniformLocation(shader_id, "pvm");
-	printf("shader_id = %d, pvm_loc = %d\n", shader_id, pvm_loc);
-	sf::Shader::bind(0);
-
-	resize_opengl(win);
-}
-
+#define MAX_MESHES 4096
 
 typedef struct __attribute__((packed))
 {
@@ -675,16 +660,116 @@ typedef struct
 } mesh_t;
 
 
+/*
+	3D world coordinates are half blocks of the resolevel0, e.g. 16mm if rl0 resolution is 32mm.
+	This is to optimize the memory usage for meshes: vertex coordinates can use smallest possible
+	integer type (for example, cube at 0,0,0mm has vertices at -16mm, 16mm, etc. - this is 1 unit).
 
-void free_mesh(mesh_t mesh)
+	With this, giving 10 bits per coordinate component, with 32mm rl0 (16mm 3D world resolution), maximum
+	mesh size is 16384*16384*16384 mm.
+
+	3d piece uses all positive coordinates, and is referenced to its corner.
+
+	The 3D world coordinates are referenced to zero, by simply dividing the absolute mm by rl0_size/2 (16 for example)
+*/
+
+typedef struct
 {
-	assert(mesh.vao > 0);
-	assert(mesh.vbo > 0);
-	assert(mesh.n_triangles > 0);
+	// Start coordinates in 3D World coordinates.
+	int x_start;
+	int y_start;
+	int z_start;
+	// Size in 3D World blocks - end coordinates are start+size
+	// Use xs = 0 to denote empty piece
+	int xs;
+	int ys;
+	int zs;
 
-	glDeleteBuffers(1, &mesh.vbo);
-	glDeleteBuffers(1, &mesh.vao);
+	// Referencing to the original page
+	int px;
+	int py;
+	int pz;
+	int rl;
+
+	mesh_t mesh;
+} piece_3d_t;
+
+piece_3d_t pieces_3d[MAX_MESHES];
+
+void free_mesh(mesh_t* mesh)
+{
+	assert(mesh->vao > 0);
+	assert(mesh->vbo > 0);
+//	assert(mesh->n_triangles > 0);
+
+	glDeleteBuffers(1, &(mesh->vbo));
+	glDeleteBuffers(1, &(mesh->vao));
+
+	mesh->vao = 0;
+	mesh->vbo = 0;
+	mesh->n_triangles = 0;
 }
+
+
+static void free_piece(int idx)
+{
+	assert(pieces_3d[idx].xs > 0);
+	free_mesh(&pieces_3d[idx].mesh);
+	pieces_3d[idx].xs = 0;
+	pieces_3d[idx].px = -1;
+	pieces_3d[idx].py = -1;
+	pieces_3d[idx].pz = -1;
+	pieces_3d[idx].rl = -1;
+}
+
+
+void init_opengl(sf::RenderWindow& win)
+{
+	// Prebuild "pieces per map page" arrays:
+	for(int rl=0; rl < MAX_RESOLEVELS; rl++)
+	{
+		pieces_x[rl] = VOX_XS[rl]/64;
+		if(pieces_x[rl] < 1) pieces_x[rl] = 1;
+		pieces_y[rl] = VOX_YS[rl]/64;
+		if(pieces_y[rl] < 1) pieces_y[rl] = 1;
+		pieces_z[rl] = VOX_ZS[rl]/64;
+		if(pieces_z[rl] < 1) pieces_z[rl] = 1;
+
+	}
+
+	// Init "illegal" page coordinate references to speed up checking
+	for(int idx=0; idx<MAX_MESHES; idx++)
+	{
+		pieces_3d[idx].xs = 0;
+		pieces_3d[idx].px = -1;
+		pieces_3d[idx].py = -1;
+		pieces_3d[idx].pz = -1;
+		pieces_3d[idx].rl = -1;
+	}
+
+
+
+	glewInit();
+	if(shader.loadFromFile("vertex_shader.glsl", "fragment_shader.glsl") == false)
+		abort();
+
+	glEnable(GL_CULL_FACE);
+	glCullFace(GL_BACK);
+	glEnable(GL_DEPTH_TEST);
+	glDepthMask(GL_TRUE);
+	glClearDepth(1.0);
+
+	sf::Shader::bind(&shader);
+	int shader_id = shader.getNativeHandle();
+	pvm_loc = glGetUniformLocation(shader_id, "pvm");
+	printf("shader_id = %d, pvm_loc = %d\n", shader_id, pvm_loc);
+	sf::Shader::bind(0);
+
+	resize_opengl(win);
+}
+
+
+
 
 // 31.5Mbytes
 #define MAX_CUBES_PER_MESH (32*32*32)
@@ -696,6 +781,8 @@ void free_mesh(mesh_t mesh)
 #define TEST_VOXMAP(x_, y_, z_, rl_) ((p_voxmap->voxels[(y_)*VOX_XS[rl_]*VOX_ZS[rl_]+(x_)*VOX_ZS[rl_]+(z_)] & 0x0f) >= display_limit[rl_])
 mesh_t voxmap_to_mesh(voxmap_t* p_voxmap, int x_start, int x_end, int y_start, int y_end, int z_start, int z_end, int pz, int rl)
 {
+
+//	printf("voxmap_to_mesh x %d..%d  y %d..%d  z %d..%d,  rl%d\n", x_start, x_end, y_start, y_end, z_start, z_end, rl);
 	static vertex_attrs_t attrs[MAX_VERTICES_PER_MESH];
 
 /*
@@ -751,6 +838,67 @@ mesh_t voxmap_to_mesh(voxmap_t* p_voxmap, int x_start, int x_end, int y_start, i
 	int facehalf=VOX_RELATIONS[rl];
 
 	int vertices[] = {
+	facehalf, facehalf, facehalf,
+	facehalf, -facehalf, facehalf,
+	-facehalf, -facehalf, facehalf,
+
+	-facehalf, facehalf, facehalf,
+	facehalf, facehalf, facehalf,
+	-facehalf, -facehalf, facehalf,
+
+
+
+	facehalf, facehalf, -facehalf,
+	-facehalf, facehalf, -facehalf,
+	-facehalf, -facehalf, -facehalf,
+
+	facehalf, -facehalf, -facehalf,
+	facehalf, facehalf, -facehalf,
+	-facehalf, -facehalf, -facehalf,
+
+
+
+	facehalf, facehalf, facehalf,
+	-facehalf, facehalf, facehalf,
+	-facehalf, facehalf, -facehalf,
+
+	facehalf, facehalf, -facehalf,
+	facehalf, facehalf, facehalf,
+	-facehalf, facehalf, -facehalf,
+
+
+
+	facehalf, -facehalf, facehalf,
+	facehalf, -facehalf, -facehalf,
+	-facehalf, -facehalf, -facehalf,
+
+	-facehalf, -facehalf, facehalf,
+	facehalf, -facehalf, facehalf,
+	-facehalf, -facehalf, -facehalf,
+
+
+
+	facehalf, facehalf, facehalf,
+	facehalf, facehalf, -facehalf,
+	facehalf, -facehalf, -facehalf,
+
+	facehalf, -facehalf, facehalf,
+	facehalf, facehalf, facehalf,
+	facehalf, -facehalf, -facehalf,
+
+
+
+	-facehalf, facehalf, facehalf,
+	-facehalf, -facehalf, facehalf,
+	-facehalf, -facehalf, -facehalf,
+
+	-facehalf, facehalf, -facehalf,
+	-facehalf, facehalf, facehalf,
+	-facehalf, -facehalf, -facehalf
+	};
+
+/*
+	int vertices[] = {
 	-facehalf, -facehalf, facehalf,
 	facehalf, -facehalf, facehalf,
 	facehalf, facehalf, facehalf,
@@ -793,7 +941,7 @@ mesh_t voxmap_to_mesh(voxmap_t* p_voxmap, int x_start, int x_end, int y_start, i
 	-facehalf, facehalf, facehalf,
 	-facehalf, facehalf, -facehalf
 	};
-
+*/
 
 	const GLfloat normals[] = {
 	0.0f, 0.0f, 1.0f,
@@ -917,16 +1065,16 @@ mesh_t voxmap_to_mesh(voxmap_t* p_voxmap, int x_start, int x_end, int y_start, i
 					int ignore_faces[6] = {0};
 
 					if(xx > 0 && TEST_VOXMAP(xx-1, yy, zz, rl))
-						ignore_faces[5] = 1;
+						ignore_faces[5] = 1;  //5
 
 					if(xx < VOX_XS[rl]-1 && TEST_VOXMAP(xx+1, yy, zz, rl))
-						ignore_faces[4] = 1;
+						ignore_faces[4] = 1;  //4
 
 					if(yy > 0 && TEST_VOXMAP(xx, yy-1, zz, rl))
-						ignore_faces[0] = 1;
+						ignore_faces[1] = 1;  //0
 
 					if(yy < VOX_YS[rl]-1 && TEST_VOXMAP(xx, yy+1, zz, rl))
-						ignore_faces[1] = 1;
+						ignore_faces[0] = 1;  //1
 
 					if(zz > 0 && TEST_VOXMAP(xx, yy, zz-1, rl))
 						ignore_faces[3] = 1;
@@ -974,7 +1122,8 @@ mesh_t voxmap_to_mesh(voxmap_t* p_voxmap, int x_start, int x_end, int y_start, i
 
 					int x = facehalf + (xx-x_start)*VOX_RELATIONS[rl]*2;
 					int y = facehalf + (zz-z_start)*VOX_RELATIONS[rl]*2;
-					int z = facehalf + (-1*(yy-y_start)+(y_end-y_start))*VOX_RELATIONS[rl]*2;
+					int z = facehalf + (yy-y_start)*VOX_RELATIONS[rl]*2;
+//					int z = -1*facehalf + (-1*(yy-y_start)+(y_end-y_start))*VOX_RELATIONS[rl]*2;
 
 					assert(x >= facehalf && x < 1024-facehalf);
 					assert(y >= facehalf && y < 1024-facehalf);
@@ -1010,6 +1159,31 @@ mesh_t voxmap_to_mesh(voxmap_t* p_voxmap, int x_start, int x_end, int y_start, i
 							assert(vy >= 0 && vy < 1024);
 							assert(vz >= 0 && vz < 1024);
 
+							if(rl==0)
+							{
+								assert(vx >= 0 && vx <= 128);
+								assert(vy >= 0 && vy <= 128);
+								assert(vz >= 0 && vz <= 128);
+							}
+							else if(rl==1)
+							{
+								assert(vx >= 0 && vx <= 256);
+								assert(vy >= 0 && vy <= 256);
+								assert(vz >= 0 && vz <= 256);
+							}
+							else if(rl==2)
+							{
+								assert(vx >= 0 && vx <= 512);
+								assert(vy >= 0 && vy <= 512);
+								assert(vz >= 0 && vz <= 512);
+							}
+							else //if(rl==3)
+							{
+								assert(vx >= 0 && vx <= 512);
+								assert(vy >= 0 && vy <= 512);
+								assert(vz >= 0 && vz <= 512);
+							}
+
 							attrs[v].position = GL_UINT_2_10_10_10_REV(0,
 								vz,
 								vy,
@@ -1041,7 +1215,7 @@ mesh_t voxmap_to_mesh(voxmap_t* p_voxmap, int x_start, int x_end, int y_start, i
 
 
 	int32_t mem = (v*sizeof(vertex_attrs_t));
-	printf("Mesh generation done. vertex count=%d Total memory: %d bytes\n", v, mem);
+//	printf("Mesh generation done. vertex count=%d Total memory: %d bytes\n", v, mem);
 
 
 	mesh_t ret;
@@ -1075,45 +1249,6 @@ mesh_t voxmap_to_mesh(voxmap_t* p_voxmap, int x_start, int x_end, int y_start, i
 	return ret;
 }
 
-
-/*
-	3D world coordinates are half blocks of the resolevel0, e.g. 16mm if rl0 resolution is 32mm.
-	This is to optimize the memory usage for meshes: vertex coordinates can use smallest possible
-	integer type (for example, cube at 0,0,0mm has vertices at -16mm, 16mm, etc. - this is 1 unit).
-
-	With this, giving 10 bits per coordinate component, with 32mm rl0 (16mm 3D world resolution), maximum
-	mesh size is 16384*16384*16384 mm.
-
-	3d piece uses all positive coordinates, and is referenced to its corner.
-
-	The 3D world coordinates are referenced to zero, by simply dividing the absolute mm by rl0_size/2 (16 for example)
-*/
-
-typedef struct
-{
-	// Start coordinates in 3D World coordinates.
-	int x_start;
-	int y_start;
-	int z_start;
-	// Size in 3D World blocks - end coordinates are start+size
-	// Use xs = 0 to denote empty piece
-	int xs;
-	int ys;
-	int zs;
-
-	// Referencing to the original page
-	int px;
-	int py;
-	int pz;
-	int rl;
-
-	mesh_t mesh;
-} piece_3d_t;
-
-#define MAX_MESHES 4096
-
-piece_3d_t pieces_3d[MAX_MESHES];
-
 #include <glm/gtx/string_cast.hpp>
 
 static void render_piece(piece_3d_t* p)
@@ -1125,7 +1260,9 @@ static void render_piece(piece_3d_t* p)
 
 
 	glm::mat4 model = glm::mat4(1.0f);
-	model = glm::translate(model, glm::vec3(p->x_start, p->z_start, (-1*p->y_start)+p->ys));	
+//	model = glm::translate(model, glm::vec3(p->x_start+p->xs/2, p->z_start+p->zs/2, (-1*(p->y_start+p->ys/2))+p->ys));	
+//	model = glm::translate(model, glm::vec3(p->x_start, p->z_start, -1*(p->y_start+p->ys)));	
+	model = glm::translate(model, glm::vec3(p->x_start, p->z_start, p->y_start));
 	glm::mat4 pvm = projection * view * model;
 
 
@@ -1147,7 +1284,8 @@ static void render_piece(piece_3d_t* p)
 	for(int i = 0; i < 8; i++)
 	{
 //		glm::vec4 point = glm::vec4(p->x_start+p->xs/2, p->z_start+p->zs/2, -1*(p->y_start+p->ys/2), 1.0f);
-		glm::vec4 point = glm::vec4(edges[i*3+0], edges[i*3+2], (-1.0*edges[i*3+1])+2*p->ys, 1.0f);
+//		glm::vec4 point = glm::vec4(edges[i*3+0], edges[i*3+2], (-1.0*edges[i*3+1])+2*p->ys, 1.0f);
+		glm::vec4 point = glm::vec4(edges[i*3+0], edges[i*3+2], edges[i*3+1], 1.0f);
 
 		glm::vec4 point_transformed = (projection * view) * point;
 
@@ -1188,16 +1326,22 @@ void render_3d(double campos_x, double campos_y, double campos_z, double camera_
 	glm::vec3 pos;
 	pos.x = campos_x / ((double)VOX_UNITS[0]/2.0);
 	pos.y = campos_z / ((double)VOX_UNITS[0]/2.0);
-	pos.z = campos_y / ((double)VOX_UNITS[0]/2.0);
+	pos.z = -1*campos_y / ((double)VOX_UNITS[0]/2.0);
 
 	glm::vec3 targ;
-	targ.x = pos.x + 1.0*cos(camera_vertang)*sin(camera_yaw);
+	targ.x = pos.x + 1.0*cos(camera_vertang)*cos(camera_yaw);
 	targ.y = pos.y + 1.0*sin(camera_vertang);
-	targ.z = pos.z + 1.0*cos(camera_vertang)*cos(camera_yaw);
+	targ.z = pos.z - 1.0*cos(camera_vertang)*sin(camera_yaw);
 
 	glm::vec3 up = glm::vec3(0.0, 1.0, 0.0);
 	
-	view = glm::lookAt(pos, targ, up);
+
+	glm::mat4 scale = glm::mat4(1.0f);
+	scale = glm::scale(scale, glm::vec3(1.0, 1.0, -1.0));
+
+	view = glm::lookAt(pos, targ, up) * scale;
+
+	
 
 
 	for(int i=0; i<MAX_MESHES; i++)
@@ -1238,6 +1382,35 @@ static int find_piece_by_page(int px, int py, int pz)
 	return -1;
 }
 
+static int find_piece_by_page_and_rl(int px, int py, int pz, int rl)
+{
+	for(int i=0; i<MAX_MESHES; i++)
+	{
+		if(pieces_3d[i].px == px && pieces_3d[i].py == py && pieces_3d[i].pz == pz && pieces_3d[i].rl == rl)
+			return i;
+	}
+
+	return -1;
+}
+
+static void free_pieces_by_page_and_rl(int px, int py, int pz, int rl)
+{
+	for(int i=0; i<MAX_MESHES; i++)
+	{
+		if(pieces_3d[i].px == px && pieces_3d[i].py == py && pieces_3d[i].pz == pz && pieces_3d[i].rl == rl && pieces_3d[i].xs > 0)
+			free_piece(i);
+	}
+}
+
+static void free_all_pieces()
+{
+	for(int i=0; i<MAX_MESHES; i++)
+	{
+		if(pieces_3d[i].xs > 0)
+			free_piece(i);
+	}
+
+}
 
 void read_voxmap_to_meshes(int px, int py, int pz, int rl)
 {
@@ -1247,38 +1420,27 @@ void read_voxmap_to_meshes(int px, int py, int pz, int rl)
 
 	if(ret >= 0)
 	{
-		printf("INFO: Succesfully loaded file from the disk (%d,%d,%d,rl%d)\n", px, py, pz, rl);
+//		printf("INFO: Succesfully loaded file from disk (%d,%d,%d,rl%d)\n", px, py, pz, rl);
 
 		assert(voxmap.header.xs == VOX_XS[rl]);
 		assert(voxmap.header.ys == VOX_YS[rl]);
 		assert(voxmap.header.zs == VOX_ZS[rl]);
 
-		int pieces_x = VOX_XS[rl]/64;
-		if(pieces_x < 1) pieces_x = 1;
-		int pieces_y = VOX_YS[rl]/64;
-		if(pieces_y < 1) pieces_y = 1;
-		int pieces_z = VOX_ZS[rl]/64;
-		if(pieces_z < 1) pieces_z = 1;
-
-		int xs = VOX_XS[rl]/pieces_x;
-		int ys = VOX_YS[rl]/pieces_y;
-		int zs = VOX_ZS[rl]/pieces_z;
-
-		assert(xs*pieces_x == VOX_XS[rl]);
-		assert(ys*pieces_y == VOX_YS[rl]);
-		assert(zs*pieces_z == VOX_ZS[rl]);
+		int xs = VOX_XS[rl]/pieces_x[rl];
+		int ys = VOX_YS[rl]/pieces_y[rl];
+		int zs = VOX_ZS[rl]/pieces_z[rl];
 
 //		int y_piece = 0, x_piece = 0, z_piece = 0;
-		for(int y_piece = 0; y_piece < pieces_y; y_piece++)
+		for(int y_piece = 0; y_piece < pieces_y[rl]; y_piece++)
 		{
-			for(int x_piece = 0; x_piece < pieces_x; x_piece++)
+			for(int x_piece = 0; x_piece < pieces_x[rl]; x_piece++)
 			{
-				for(int z_piece = 0; z_piece < pieces_z; z_piece++)
+				for(int z_piece = 0; z_piece < pieces_z[rl]; z_piece++)
 				{
 					int idx = find_free_piece();
 
-					printf("New mesh idx=%d, page(%d,%d,%d,rl%d), piece(%d,%d,%d)\n", 
-						idx, px, py, pz, rl, x_piece, y_piece, z_piece);
+//					printf("New mesh idx=%d, page(%d,%d,%d,rl%d), piece(%d,%d,%d)\n", 
+//						idx, px, py, pz, rl, x_piece, y_piece, z_piece);
 
 					if(idx < 0)
 					{
@@ -1305,9 +1467,9 @@ void read_voxmap_to_meshes(int px, int py, int pz, int rl)
 					pieces_3d[idx].y_start = (py-MAX_PAGES_Y/2)*VOX_YS[0]*2 + y_piece*ys*VOX_RELATIONS[rl]*2;
 					pieces_3d[idx].z_start = (pz-MAX_PAGES_Z/2)*VOX_ZS[0]*2 + z_piece*zs*VOX_RELATIONS[rl]*2;
 
-					printf("size (%d, %d, %d), start (%d,%d,%d)\n", 
-						pieces_3d[idx].xs, pieces_3d[idx].ys, pieces_3d[idx].zs,
-						pieces_3d[idx].x_start, pieces_3d[idx].y_start, pieces_3d[idx].z_start);
+//					printf("size (%d, %d, %d), start (%d,%d,%d)\n", 
+//						pieces_3d[idx].xs, pieces_3d[idx].ys, pieces_3d[idx].zs,
+//						pieces_3d[idx].x_start, pieces_3d[idx].y_start, pieces_3d[idx].z_start);
 
 
 				}
@@ -1327,9 +1489,101 @@ int manage_mesh_ranges(double campos_x, double campos_y, double campos_z, double
 //	int px = MAX_PAGES_X/2;
 //	int py = MAX_PAGES_Y/2;
 //	int pz = MAX_PAGES_Z/2;
-	for(int py = MAX_PAGES_Y/2-3; py < MAX_PAGES_Y/2+3; py++)
+
+
+	po_coords_t poc = po_coords(campos_x, campos_y, campos_z, 0);
+
+/*
+	int px = poc.px;
+	int py = poc.py;
+	int pz = poc.pz;
+
+	printf("(%3d,%3d,%3d,rl%d)\n", px, py, pz, rl);
+
+
+	free_all_pieces();
+
+
+	if(find_piece_by_page_and_rl(px, py, pz, rl) == -1)
+		read_voxmap_to_meshes(px, py, pz, rl);
+	else
 	{
-		for(int px = MAX_PAGES_X/2-3; px < MAX_PAGES_X/2+3; px++)
+		printf("KAKKA!\n");
+		abort();
+	}
+*/
+
+	static const int extra_x[MAX_RESOLEVELS] = {1, 2, 4, 8, 8, 8};
+	static const int extra_y[MAX_RESOLEVELS] = {1, 2, 4, 8, 8, 8};
+	static const int extra_z[MAX_RESOLEVELS] = {1, 2, 3, 6, 6, 6};
+
+
+	int start_x[MAX_RESOLEVELS];
+	int end_x[MAX_RESOLEVELS];
+	int start_y[MAX_RESOLEVELS];
+	int end_y[MAX_RESOLEVELS];
+	int start_z[MAX_RESOLEVELS];
+	int end_z[MAX_RESOLEVELS];
+
+	for(int rl=0; rl<4; rl++)
+	{
+		start_x[rl] = poc.px-extra_x[rl];
+		end_x[rl] = poc.px+extra_x[rl];
+		start_y[rl] = poc.py-extra_y[rl];
+		end_y[rl] = poc.py+extra_y[rl];
+		start_z[rl] = poc.pz-extra_z[rl];
+		end_z[rl] = poc.pz+extra_z[rl];
+
+		if(start_x[rl] < 0) start_x[rl] = 0;
+		if(end_x[rl] > MAX_PAGES_X-1) end_x[rl] = MAX_PAGES_X-1;
+		if(start_y[rl] < 0) start_y[rl] = 0;
+		if(end_y[rl] > MAX_PAGES_Y-1) end_y[rl] = MAX_PAGES_Y-1;
+		if(start_z[rl] < 0) start_z[rl] = 0;
+		if(end_z[rl] > MAX_PAGES_Z-1) end_z[rl] = MAX_PAGES_Z-1;
+	}
+
+
+	for(int py = start_y[3]; py <= end_y[3]; py++)
+	{
+		for(int px = start_x[3]; px <= end_x[3]; px++)
+		{
+			for(int pz = start_z[3]; pz <= end_z[3]; pz++)
+			{
+				for(int rl=0; rl<4; rl++)
+				{
+					if(py >= start_y[rl] && py <= end_y[rl] &&
+					   px >= start_x[rl] && px <= end_x[rl] &&
+					   pz >= start_z[rl] && pz <= end_z[rl])
+					{
+						// This page should be loaded at this rl - first free all lower rls
+
+						if(px==poc.px && py==poc.py && pz==poc.pz) printf("LOAD   (%3d,%3d,%3d,rl%d)\n", px, py, pz, rl);
+
+						for(int lower_rl=rl+1; lower_rl<4; lower_rl++)
+							free_pieces_by_page_and_rl(px, py, pz, lower_rl);
+
+						if(find_piece_by_page_and_rl(px, py, pz, rl) == -1)
+							read_voxmap_to_meshes(px, py, pz, rl);
+
+						break; // Don't load lower rls
+					}
+					else
+					{
+//						printf("LOAD   (%3d,%3d,%3d,rl%d)\n", px, py, pz, rl);
+
+						// This page shoudln't be loaded at this rl
+						free_pieces_by_page_and_rl(px, py, pz, rl);
+					}
+				}
+			}
+		}
+	}	
+
+	
+/*
+	for(int py = MAX_PAGES_Y/2-5; py < MAX_PAGES_Y/2+5; py++)
+	{
+		for(int px = MAX_PAGES_X/2-5; px < MAX_PAGES_X/2+5; px++)
 		{
 			for(int pz = MAX_PAGES_Z/2-2; pz < MAX_PAGES_Z/2+2; pz++)
 			{
@@ -1342,7 +1596,7 @@ int manage_mesh_ranges(double campos_x, double campos_y, double campos_z, double
 		}
 
 	}
-
+*/
 	return 0;
 
 }

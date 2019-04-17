@@ -2586,23 +2586,23 @@ int main(int argc, char** argv)
 
 			if(sf::Keyboard::isKeyPressed(sf::Keyboard::W))
 			{
-				campos_y += speed*cos(camera_yaw);
-				campos_x += speed*sin(camera_yaw);
+				campos_y += speed*sin(camera_yaw);
+				campos_x += speed*cos(camera_yaw);
 			}
 			if(sf::Keyboard::isKeyPressed(sf::Keyboard::S))
 			{
-				campos_y += -speed*cos(camera_yaw);
-				campos_x += -speed*sin(camera_yaw);
+				campos_y += -speed*sin(camera_yaw);
+				campos_x += -speed*cos(camera_yaw);
 			}
 			if(sf::Keyboard::isKeyPressed(sf::Keyboard::A))
 			{
-				campos_y += speed*cos(camera_yaw+(M_PI/2.0));
-				campos_x += speed*sin(camera_yaw+(M_PI/2.0));
+				campos_y += speed*sin(camera_yaw+(M_PI/2.0));
+				campos_x += speed*cos(camera_yaw+(M_PI/2.0));
 			}
 			if(sf::Keyboard::isKeyPressed(sf::Keyboard::D))
 			{
-				campos_y += speed*cos(camera_yaw-(M_PI/2.0));
-				campos_x += speed*sin(camera_yaw-(M_PI/2.0));
+				campos_y += speed*sin(camera_yaw-(M_PI/2.0));
+				campos_x += speed*cos(camera_yaw-(M_PI/2.0));
 			}
 
 			if(sf::Keyboard::isKeyPressed(sf::Keyboard::R))
