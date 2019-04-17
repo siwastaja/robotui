@@ -2026,6 +2026,8 @@ int main(int argc, char** argv)
 	win.setActive(false);
 	win.pushGLStates();
 
+	sf::Clock clock;
+	float last_time = 0.0;
 	int cnt = 0;
 	while(win.isOpen())
 	{
@@ -2097,7 +2099,7 @@ int main(int argc, char** argv)
 				win.popGLStates();
 				win.setActive(true);
 
-				init_opengl(win);
+				resize_opengl(win);
 
 				win.setActive(false);
 				win.pushGLStates();
@@ -2672,7 +2674,7 @@ int main(int argc, char** argv)
 		{
 			if(view_3d)
 			{
-				manage_mesh_ranges();
+				manage_mesh_ranges(campos_x, campos_y, campos_z, camera_yaw, camera_vertang);
 			}
 			else
 			{
@@ -2773,6 +2775,26 @@ int main(int argc, char** argv)
 			draw_tof_raws(win);
 		}
 		tof_raws_came++;
+
+		float current_time = clock.getElapsedTime().asSeconds();
+		float fps = 1.f / (current_time);
+		clock.restart();
+
+		{
+			sf::Text t;
+			char tbuf[256];
+			t.setFont(arial);
+
+			static int fx=0;
+
+			sprintf(tbuf, "%.1f FPS", fps);
+			t.setFillColor(sf::Color(255,255,255,255));
+			t.setString(tbuf);
+			t.setCharacterSize(12);
+			t.setPosition(5, 5);
+			win.draw(t);
+		}
+
 
 
 		win.display();

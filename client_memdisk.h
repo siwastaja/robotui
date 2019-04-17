@@ -39,8 +39,10 @@ void map_set_2();
 
 
 void init_opengl(sf::RenderWindow& win);
+void resize_opengl(sf::RenderWindow& win);
+
 void render_3d(double campos_x, double campos_y, double campos_z, double camera_yaw, double camera_vertang);
-int manage_mesh_ranges();
+int manage_mesh_ranges(double campos_x, double campos_y, double campos_z, double camera_yaw, double camera_vertang);
 
 
 #endif

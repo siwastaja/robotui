@@ -617,6 +617,16 @@ static glm::mat4 projection;
 static glm::mat4 view;
 static int pvm_loc;
 
+
+void resize_opengl(sf::RenderWindow& win)
+{
+	glViewport(0, 0, win.getSize().x, win.getSize().y);
+
+	float ratio = static_cast<float>(win.getSize().x) / win.getSize().y;
+
+	projection = glm::perspective(glm::radians(60.0f), ratio, 0.1f, 10000.0f);
+}
+
 void init_opengl(sf::RenderWindow& win)
 {
 	glewInit();
@@ -628,12 +638,6 @@ void init_opengl(sf::RenderWindow& win)
 	glEnable(GL_DEPTH_TEST);
 	glDepthMask(GL_TRUE);
 	glClearDepth(1.0);
-	glViewport(0, 0, win.getSize().x, win.getSize().y);
-
-
-	float ratio = static_cast<float>(win.getSize().x) / win.getSize().y;
-
-	projection = glm::perspective(glm::radians(60.0f), ratio, 0.1f, 4000.0f);
 
 	sf::Shader::bind(&shader);
 	int shader_id = shader.getNativeHandle();
@@ -641,6 +645,7 @@ void init_opengl(sf::RenderWindow& win)
 	printf("shader_id = %d, pvm_loc = %d\n", shader_id, pvm_loc);
 	sf::Shader::bind(0);
 
+	resize_opengl(win);
 }
 
 
@@ -651,9 +656,12 @@ typedef struct __attribute__((packed))
 	GLfloat z;
 } vec3_t;
 
+#define GL_UINT_2_10_10_10_REV(a_, b_, g_, r_) (((a_)<<30) | ((b_)<<20) | ((g_)<<10) | (r_))
+
 typedef struct __attribute__((packed))
 {
-	vec3_t position;
+//	vec3_t position;
+	uint32_t position;
 //	vec3_t normal;
 	uint32_t color;
 } vertex_attrs_t;
@@ -690,6 +698,7 @@ mesh_t voxmap_to_mesh(voxmap_t* p_voxmap, int x_start, int x_end, int y_start, i
 {
 	static vertex_attrs_t attrs[MAX_VERTICES_PER_MESH];
 
+/*
 	float width=1.0*VOX_RELATIONS[rl]*2.0;
 	float height=1.0*VOX_RELATIONS[rl]*2.0;
 	float length=1.0*VOX_RELATIONS[rl]*2.0;
@@ -737,6 +746,54 @@ mesh_t voxmap_to_mesh(voxmap_t* p_voxmap, int x_start, int x_end, int y_start, i
 	-width/2, height/2, length/2,
 	-width/2, height/2, -length/2
 	};
+*/
+
+	int facehalf=VOX_RELATIONS[rl];
+
+	int vertices[] = {
+	-facehalf, -facehalf, facehalf,
+	facehalf, -facehalf, facehalf,
+	facehalf, facehalf, facehalf,
+	-facehalf, -facehalf, facehalf,
+	facehalf, facehalf, facehalf,
+	-facehalf, facehalf, facehalf,
+
+	-facehalf, -facehalf, -facehalf,
+	-facehalf, facehalf, -facehalf,
+	facehalf, facehalf, -facehalf,
+	-facehalf, -facehalf, -facehalf,
+	facehalf, facehalf, -facehalf,
+	facehalf, -facehalf, -facehalf,
+
+	-facehalf, facehalf, -facehalf,
+	-facehalf, facehalf, facehalf,
+	facehalf, facehalf, facehalf,
+	-facehalf, facehalf, -facehalf,
+	facehalf, facehalf, facehalf,
+	facehalf, facehalf, -facehalf,
+
+	-facehalf, -facehalf, -facehalf,
+	facehalf, -facehalf, -facehalf,
+	facehalf, -facehalf, facehalf,
+	-facehalf, -facehalf, -facehalf,
+	facehalf, -facehalf, facehalf,
+	-facehalf, -facehalf, facehalf,
+
+	facehalf, -facehalf, -facehalf,
+	facehalf, facehalf, -facehalf,
+	facehalf, facehalf, facehalf,
+	facehalf, -facehalf, -facehalf,
+	facehalf, facehalf, facehalf,
+	facehalf, -facehalf, facehalf,
+
+	-facehalf, -facehalf, -facehalf,
+	-facehalf, -facehalf, facehalf,
+	-facehalf, facehalf, facehalf,
+	-facehalf, -facehalf, -facehalf,
+	-facehalf, facehalf, facehalf,
+	-facehalf, facehalf, -facehalf
+	};
+
 
 	const GLfloat normals[] = {
 	0.0f, 0.0f, 1.0f,
@@ -911,10 +968,17 @@ mesh_t voxmap_to_mesh(voxmap_t* p_voxmap, int x_start, int x_end, int y_start, i
 
 					a = 255;
 
-					float x = (xx-x_start)*VOX_RELATIONS[rl]*2.0;
-					float y = (zz-z_start)*VOX_RELATIONS[rl]*2.0;
-					float z = (-1*(yy-y_start))*VOX_RELATIONS[rl]*2.0;
+//					float x = (xx-x_start)*VOX_RELATIONS[rl]*2.0;
+//					float y = (zz-z_start)*VOX_RELATIONS[rl]*2.0;
+//					float z = (-1*(yy-y_start))*VOX_RELATIONS[rl]*2.0;
 
+					int x = facehalf + (xx-x_start)*VOX_RELATIONS[rl]*2;
+					int y = facehalf + (zz-z_start)*VOX_RELATIONS[rl]*2;
+					int z = facehalf + (-1*(yy-y_start)+(y_end-y_start))*VOX_RELATIONS[rl]*2;
+
+					assert(x >= facehalf && x < 1024-facehalf);
+					assert(y >= facehalf && y < 1024-facehalf);
+					assert(z >= facehalf && z < 1024-facehalf);
 					//x = 0.0;
 					//y = 0.0;
 					//z = 0.0;
@@ -934,9 +998,22 @@ mesh_t voxmap_to_mesh(voxmap_t* p_voxmap, int x_start, int x_end, int y_start, i
 
 						for(int i=face*6; i<(face+1)*6; i++)
 						{
-							attrs[v].position.x = vertices[i*3+0] + x;
-							attrs[v].position.y = vertices[i*3+1] + y;
-							attrs[v].position.z = vertices[i*3+2] + z;
+//							attrs[v].position.x = vertices[i*3+0] + x;
+//							attrs[v].position.y = vertices[i*3+1] + y;
+//							attrs[v].position.z = vertices[i*3+2] + z;
+
+							int vx = vertices[i*3+0] + x;
+							int vy = vertices[i*3+1] + y;
+							int vz = vertices[i*3+2] + z;
+
+							assert(vx >= 0 && vx < 1024);
+							assert(vy >= 0 && vy < 1024);
+							assert(vz >= 0 && vz < 1024);
+
+							attrs[v].position = GL_UINT_2_10_10_10_REV(0,
+								vz,
+								vy,
+								vx);
 
 							//attrs[v].normal.x = normals[i*3+0];
 							//attrs[v].normal.y = normals[i*3+1];
@@ -982,7 +1059,8 @@ mesh_t voxmap_to_mesh(voxmap_t* p_voxmap, int x_start, int x_end, int y_start, i
 
 	// vertex positions, layout 0
 	glEnableVertexAttribArray(0);	
-	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(vertex_attrs_t), (void*)offsetof(vertex_attrs_t, position));
+//	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(vertex_attrs_t), (void*)offsetof(vertex_attrs_t, position));
+	glVertexAttribPointer(0, 4, GL_UNSIGNED_INT_2_10_10_10_REV, GL_FALSE, sizeof(vertex_attrs_t), (void*)offsetof(vertex_attrs_t, position));
 
 	// colors, layout 1
 	glEnableVertexAttribArray(1);
@@ -1032,7 +1110,7 @@ typedef struct
 	mesh_t mesh;
 } piece_3d_t;
 
-#define MAX_MESHES 1024
+#define MAX_MESHES 4096
 
 piece_3d_t pieces_3d[MAX_MESHES];
 
@@ -1043,17 +1121,54 @@ static void render_piece(piece_3d_t* p)
 	if(p->mesh.n_triangles < 1)
 		return;
 
+
+
+
+	glm::mat4 model = glm::mat4(1.0f);
+	model = glm::translate(model, glm::vec3(p->x_start, p->z_start, (-1*p->y_start)+p->ys));	
+	glm::mat4 pvm = projection * view * model;
+
+
+
+//	printf("point_transformed: %s\n", glm::to_string(point_transformed).c_str());
+	int n_outside = 0;
+	float edges[8*3] =
+	{
+		p->x_start, p->y_start, p->z_start,
+		p->x_start, p->y_start, p->z_start+p->zs,
+		p->x_start, p->y_start+p->ys, p->z_start,
+		p->x_start, p->y_start+p->ys, p->z_start+p->zs,
+		p->x_start+p->xs, p->y_start, p->z_start,
+		p->x_start+p->xs, p->y_start, p->z_start+p->zs,
+		p->x_start+p->xs, p->y_start+p->ys, p->z_start,
+		p->x_start+p->xs, p->y_start+p->ys, p->z_start+p->zs
+	};
+
+	for(int i = 0; i < 8; i++)
+	{
+//		glm::vec4 point = glm::vec4(p->x_start+p->xs/2, p->z_start+p->zs/2, -1*(p->y_start+p->ys/2), 1.0f);
+		glm::vec4 point = glm::vec4(edges[i*3+0], edges[i*3+2], (-1.0*edges[i*3+1])+2*p->ys, 1.0f);
+
+		glm::vec4 point_transformed = (projection * view) * point;
+
+		if(point_transformed.x < -1.2*point_transformed.w || point_transformed.x > 1.2*point_transformed.w ||
+		   point_transformed.y < -1.5*point_transformed.w || point_transformed.y > 1.5*point_transformed.w ||
+		   point_transformed.z < -1.2*point_transformed.w || point_transformed.z > 1.2*point_transformed.w)
+			n_outside++;
+
+	}
+
+	if(n_outside == 8)
+		return;
+
 	glBindVertexArray(p->mesh.vao);
 
 	// No need to rotate the models, only translate
-	glm::mat4 model = glm::mat4(1.0f);
-	model = glm::translate(model, glm::vec3(p->x_start, p->z_start, -1*p->y_start));	
 
 //	printf("render_piece vertices=%d\n", p->mesh.n_triangles*3);
 
 	// Pieces are large, and there are few of them (several hundreds).
 	// Don't calculate projection*view*model on GPU for every vertex.
-	glm::mat4 pvm = projection * view * model;
 //	printf("P %s\n", glm::to_string(projection).c_str());
 //	printf("V %s\n", glm::to_string(view).c_str());
 //	printf("M %s\n", glm::to_string(model).c_str());
@@ -1206,21 +1321,21 @@ void read_voxmap_to_meshes(int px, int py, int pz, int rl)
 	}
 }
 
-int manage_mesh_ranges()
+int manage_mesh_ranges(double campos_x, double campos_y, double campos_z, double camera_yaw, double camera_vertang)
 {
 
 //	int px = MAX_PAGES_X/2;
 //	int py = MAX_PAGES_Y/2;
 //	int pz = MAX_PAGES_Z/2;
-	for(int py = MAX_PAGES_Y/2-2; py < MAX_PAGES_Y/2+2; py++)
+	for(int py = MAX_PAGES_Y/2-3; py < MAX_PAGES_Y/2+3; py++)
 	{
-		for(int px = MAX_PAGES_X/2-2; px < MAX_PAGES_X/2+2; px++)
+		for(int px = MAX_PAGES_X/2-3; px < MAX_PAGES_X/2+3; px++)
 		{
 			for(int pz = MAX_PAGES_Z/2-2; pz < MAX_PAGES_Z/2+2; pz++)
 			{
 				if(find_piece_by_page(px, py, pz) == -1)
 				{
-					read_voxmap_to_meshes(px, py, pz, 1);
+					read_voxmap_to_meshes(px, py, pz, 2);
 				}
 			}
 
