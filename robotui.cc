@@ -16,12 +16,8 @@
 	GNU General Public License version 2 is supplied in file LICENSING.
 
 
-
 	This program takes direct TCP connection to the robot:
 	./rn1client robot_hostname robot_port
-
-	Needs code quality improvement. I haven't been able to decide whether this is 
-	a prototype-to-be-replaced, or a maintained application. It works nevertheless :-).
 
 	Library dependencies:
 	SFML (at least 2.4.2 works; SFML tends to have slight compatibility breaks every now and then)
@@ -42,7 +38,6 @@
 #include <SFML/Graphics.hpp>
 #include <SFML/Network.hpp>
 #include <SFML/OpenGL.hpp>
-#include <GL/glu.h>
 
 #define DEFINE_API_VARIABLES
 #include "../robotsoft/api_board_to_soft.h"
@@ -1907,7 +1902,7 @@ int main(int argc, char** argv)
 
 	if(argc != 3)
 	{
-		printf("Usage: rn1client addr port\n");
+		printf("Usage: robotui addr port\n");
 		printf("Starting in offline mode.\n");
 		online = 0;
 	}
@@ -1938,8 +1933,16 @@ int main(int argc, char** argv)
 	}
 
 	sf::ContextSettings sets;
-	sets.antialiasingLevel = 8;
+//	sets.antialiasingLevel = 8;
+	// SFML drawing functions won't work on opengl 3.3, which seems to force "core" profile.
+	// 3.0 is OK for us.
+	sets.majorVersion = 3;
+	sets.minorVersion = 0;
+	sets.depthBits = 24;
 	sf::RenderWindow win(sf::VideoMode(screen_x,screen_y), "PULUROBOT SLAM", sf::Style::Default, sets);
+
+	sf::ContextSettings settings = win.getSettings();
+	printf("OpenGL version: %d.%d\n", settings.majorVersion,settings.minorVersion);
 
 	win.setActive(true);
 	printf("GPU: Vendor:   %s\n", glGetString(GL_VENDOR));
@@ -1947,119 +1950,9 @@ int main(int argc, char** argv)
 	init_memdisk();
 	build_fullmap();
 
-
-	glEnable(GL_DEPTH_TEST);
-	glDepthMask(GL_TRUE);
-	glClearDepth(1.0);
-	glDisable(GL_LIGHTING);
-	glViewport(0, 0, win.getSize().x, win.getSize().y);
-	glMatrixMode(GL_PROJECTION);
-	glLoadIdentity();
-	GLfloat ratio = static_cast<float>(win.getSize().x) / win.getSize().y;
-//	glFrustum(-ratio, ratio, -1.f, 1.f, 1.f, 500.f);
-	gluPerspective(/*fov y:*/70.0, ratio, 0.1, 1000.0);
-
-//	glFrustum(-ratio, ratio, -1.f, 1.f, 0.01, 1000.0);
+	init_opengl(win);
 
 
-static const GLfloat cube[] =
-        {
-            // positions    // texture coordinates
-            -20, -20, -20,  0, 0,
-            -20,  20, -20,  1, 0,
-            -20, -20,  20,  0, 1,
-            -20, -20,  20,  0, 1,
-            -20,  20, -20,  1, 0,
-            -20,  20,  20,  1, 1,
-
-             20, -20, -20,  0, 0,
-             20,  20, -20,  1, 0,
-             20, -20,  20,  0, 1,
-             20, -20,  20,  0, 1,
-             20,  20, -20,  1, 0,
-             20,  20,  20,  1, 1,
-
-            -20, -20, -20,  0, 0,
-             20, -20, -20,  1, 0,
-            -20, -20,  20,  0, 1,
-            -20, -20,  20,  0, 1,
-             20, -20, -20,  1, 0,
-             20, -20,  20,  1, 1,
-
-            -20,  20, -20,  0, 0,
-             20,  20, -20,  1, 0,
-            -20,  20,  20,  0, 1,
-            -20,  20,  20,  0, 1,
-             20,  20, -20,  1, 0,
-             20,  20,  20,  1, 1,
-
-            -20, -20, -20,  0, 0,
-             20, -20, -20,  1, 0,
-            -20,  20, -20,  0, 1,
-            -20,  20, -20,  0, 1,
-             20, -20, -20,  1, 0,
-             20,  20, -20,  1, 1,
-
-            -20, -20,  20,  0, 0,
-             20, -20,  20,  1, 0,
-            -20,  20,  20,  0, 1,
-            -20,  20,  20,  0, 1,
-             20, -20,  20,  1, 0,
-             20,  20,  20,  1, 1
-        };
-
-static const uint8_t colors[] =
-        {
-		255, 0, 0, 255,
-		255, 0, 0, 255,
-		255, 0, 0, 255,
-		255, 0, 0, 255,
-		255, 0, 0, 255,
-		255, 0, 0, 255,
-
-		255, 0, 0, 255,
-		255, 0, 0, 255,
-		255, 0, 0, 255,
-		255, 0, 0, 255,
-		255, 0, 0, 255,
-		255, 0, 0, 255,
-
-		255, 0, 0, 255,
-		255, 0, 0, 255,
-		255, 0, 0, 255,
-		255, 0, 0, 255,
-		255, 0, 0, 255,
-		255, 0, 0, 255,
-
-		255, 0, 0, 255,
-		255, 0, 0, 255,
-		255, 0, 0, 255,
-		255, 0, 0, 255,
-		255, 0, 0, 255,
-		255, 0, 0, 255,
-
-		255, 0, 0, 255,
-		255, 0, 0, 255,
-		255, 0, 0, 255,
-		255, 0, 0, 255,
-		255, 0, 0, 255,
-		255, 0, 0, 255,
-
-		255, 0, 0, 255,
-		255, 0, 0, 255,
-		255, 0, 0, 255,
-		255, 0, 0, 255,
-		255, 0, 0, 255,
-		255, 0, 0, 255
-
-	};
-
-
-	glEnableClientState(GL_VERTEX_ARRAY);
-	glVertexPointer(3, GL_FLOAT, 5 * sizeof(GLfloat), cube);
-	glDisableClientState(GL_NORMAL_ARRAY);
-	glEnableClientState(GL_COLOR_ARRAY);
-	glColorPointer(4, GL_UNSIGNED_BYTE, 0, colors);
 	win.setActive(false);
 
 
@@ -2110,7 +2003,7 @@ static const uint8_t colors[] =
 	}
 	
 
-	bool right_click_on = false;
+	bool click_on = false;
 	bool left_click_on = false;
 	double prev_click_x = 0.0, prev_click_y = 0.0;
 
@@ -2200,6 +2093,15 @@ static const uint8_t colors[] =
 
 				sf::FloatRect visibleArea(0, 0, screen_x, screen_y);
 				win.setView(sf::View(visibleArea));
+
+				win.popGLStates();
+				win.setActive(true);
+
+				init_opengl(win);
+
+				win.setActive(false);
+				win.pushGLStates();
+
 			}
 			if(event.type == sf::Event::LostFocus)
 				focus = 0;
@@ -2403,7 +2305,8 @@ static const uint8_t colors[] =
 				click_x = (localPosition.x * mm_per_pixel) - origin_x;
 				click_y = (-1*localPosition.y * mm_per_pixel) + origin_y;
 
-				if(sf::Mouse::isButtonPressed(sf::Mouse::Left))
+				//if(sf::Mouse::isButtonPressed(sf::Mouse::Left))
+				if(0)
 				{
 //					bool shift_on = sf::Keyboard::isKeyPressed(sf::Keyboard::LShift) || sf::Keyboard::isKeyPressed(sf::Keyboard::RShift);
 					if(!left_click_on)
@@ -2547,14 +2450,16 @@ static const uint8_t colors[] =
 				else
 					left_click_on = false;
 
-				if(sf::Mouse::isButtonPressed(sf::Mouse::Right))
+				if(sf::Mouse::isButtonPressed(sf::Mouse::Left))
 				{
-					if(right_click_on)
+					if(click_on)
 					{
 						double dx = click_x - prev_click_x; double dy = click_y - prev_click_y;
 						origin_x += dx; origin_y -= dy;
-						camera_yaw +=  dx*-0.001;
-						camera_vertang += dy*-0.001;
+						camera_yaw +=  dx*-0.0001;
+						camera_vertang += dy*-0.0001;
+						if(camera_vertang < DEGTORAD(-89.0)) camera_vertang = DEGTORAD(-89.0);
+						if(camera_vertang > DEGTORAD(+89.0)) camera_vertang = DEGTORAD(+89.0);
 
 					}
 					else
@@ -2562,10 +2467,10 @@ static const uint8_t colors[] =
 						prev_click_x = click_x; prev_click_y = click_y;
 					}
 
-					right_click_on = true;
+					click_on = true;
 				}
 				else
-					right_click_on = false;
+					click_on = false;
 			}
 
 			if(sf::Keyboard::isKeyPressed(sf::Keyboard::PageUp))
@@ -2672,36 +2577,39 @@ static const uint8_t colors[] =
 			}
 
 
-			float speed = 8.0;
+			float speed = 64.0;
+
+			if(sf::Keyboard::isKeyPressed(sf::Keyboard::LShift) || sf::Keyboard::isKeyPressed(sf::Keyboard::RShift))
+				speed *= 4.0;
 
 			if(sf::Keyboard::isKeyPressed(sf::Keyboard::W))
 			{
-				campos_z += speed*cos(camera_yaw);
+				campos_y += speed*cos(camera_yaw);
 				campos_x += speed*sin(camera_yaw);
 			}
 			if(sf::Keyboard::isKeyPressed(sf::Keyboard::S))
 			{
-				campos_z += -speed*cos(camera_yaw);
+				campos_y += -speed*cos(camera_yaw);
 				campos_x += -speed*sin(camera_yaw);
 			}
 			if(sf::Keyboard::isKeyPressed(sf::Keyboard::A))
 			{
-				campos_z += speed*cos(camera_yaw+(M_PI/2.0));
+				campos_y += speed*cos(camera_yaw+(M_PI/2.0));
 				campos_x += speed*sin(camera_yaw+(M_PI/2.0));
 			}
 			if(sf::Keyboard::isKeyPressed(sf::Keyboard::D))
 			{
-				campos_z += speed*cos(camera_yaw-(M_PI/2.0));
+				campos_y += speed*cos(camera_yaw-(M_PI/2.0));
 				campos_x += speed*sin(camera_yaw-(M_PI/2.0));
 			}
 
 			if(sf::Keyboard::isKeyPressed(sf::Keyboard::R))
 			{
-				campos_y += speed;
+				campos_z += speed;
 			}
 			if(sf::Keyboard::isKeyPressed(sf::Keyboard::F))
 			{
-				campos_y += -speed;
+				campos_z += -speed;
 			}
 
 			if(sf::Keyboard::isKeyPressed(sf::Keyboard::Num3))
@@ -2762,8 +2670,16 @@ static const uint8_t colors[] =
 		manage++;
 		if(manage > 10)
 		{
-			use_fullmap = manage_page_pile_ranges();
-			printf("use_fullmap=%d\n", use_fullmap);
+			if(view_3d)
+			{
+				manage_mesh_ranges();
+			}
+			else
+			{
+				use_fullmap = manage_page_pile_ranges();
+				printf("use_fullmap=%d\n", use_fullmap);
+			}
+
 			manage = 0;
 		}
 
@@ -2772,16 +2688,8 @@ static const uint8_t colors[] =
 			win.popGLStates();
 			win.setActive(true);
 
-			glClear(GL_DEPTH_BUFFER_BIT);
-			glMatrixMode(GL_MODELVIEW);
-			glLoadIdentity();
+			render_3d(campos_x, campos_y, campos_z, camera_yaw, camera_vertang);
 
-			double camtarg_z = campos_z + 10.0*cos(camera_yaw);
-			double camtarg_x = campos_x + 10.0*sin(camera_yaw);
-			double camtarg_y = campos_y + 10.0*sin(camera_vertang);
-
-			gluLookAt(campos_x, campos_y, campos_z, camtarg_x, camtarg_y, camtarg_z, 0, 1, 0);
-			glDrawArrays(GL_TRIANGLES, 0, 36);
 
 			win.setActive(false);
 			win.pushGLStates();

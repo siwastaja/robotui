@@ -25,9 +25,13 @@
 #include <errno.h>
 #include <dirent.h>
 
+#include <GL/glew.h>
 #include <SFML/Graphics.hpp>
 #include <SFML/OpenGL.hpp>
-#include <GL/glu.h>
+#include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtc/type_ptr.hpp>
+//#include <glm/gtc/transform.hpp>
 
 #include "client_memdisk.h"
 
@@ -36,88 +40,7 @@ extern "C" {
 #include "../robotsoft/voxmap_memdisk.h"
 }
 
-
 #if 0
-int read_map_page(world_t* w, int pagex, int pagey)
-{
-	char fname[1024];
-	sprintf(fname, "%08x_%u_%u_%u.map", robot_id, w->id, pagex, pagey);
-
-//	printf("Info: Attempting to read map page %s\n", fname);
-
-	FILE *f = fopen(fname, "r");
-	if(!f)
-	{
-		if(errno == ENOENT)
-			return 2;
-		fprintf(stderr, "Error %d opening %s for read\n", errno, fname);
-		return 1;
-	}
-
-	int ret;
-	if( (ret = fread(w->pages[pagex][pagey], sizeof(map_page_t), 1, f)) != 1)
-	{
-		printf("Error: Reading map data failed, fread returned %d. feof=%d, ferror=%d\n", ret, feof(f), ferror(f));
-	}
-
-	fclose(f);
-	return 0;
-}
-
-int load_map_page(world_t* w, int pagex, int pagey)
-{
-	if(w->pages[pagex][pagey])
-	{
-//		printf("Info: reloading already allocated map page %d,%d\n", pagex, pagey);
-	}
-	else
-	{
-//		printf("Info: Allocating mem for page %d,%d\n", pagex, pagey);
-		w->pages[pagex][pagey] = (map_page_t*)malloc(sizeof(map_page_t));
-	}
-
-	int ret = read_map_page(w, pagex, pagey);
-	if(ret)
-	{
-		printf("Error: Reading map file failed. Initializing empty map\n");
-		memset(w->pages[pagex][pagey], 0, sizeof(map_page_t));
-		return 1;
-	}
-	return 0;
-}
-
-int unload_map_page(world_t* w, int pagex, int pagey)
-{
-	if(w->pages[pagex][pagey])
-	{
-		printf("Info: Freeing mem for page %d,%d\n", pagex, pagey);
-		free(w->pages[pagex][pagey]);
-		w->pages[pagex][pagey] = 0;
-	}
-	else
-	{
-		printf("Warn: Trying to unload a map page which is already free.\n");
-	}
-	return 0;
-}
-
-int unload_map_pages(world_t* w, int cur_pagex, int cur_pagey)
-{
-	for(int x = 0; x < MAP_W; x++)
-	{
-		for(int y = 0; y < MAP_W; y++)
-		{
-			if(w->pages[x][y] && (abs(cur_pagex - x) > 2 || abs(cur_pagey - y) > 2))
-			{
-				unload_map_page(w, x, y);
-			}
-
-		}
-	}
-	return 0;
-}
-#endif
-
 #define MAX_LEVELS 8
 #define LEVEL_EMPTY 0
 
@@ -130,11 +53,12 @@ typedef struct
 {
 	map_block_2d_t* blocks[8]; // Number of blocks is VOX_XS[rl]*VOX_YS[rl]
 } map_piece_2d_t;
-
+#endif
 
 
 static uint8_t pages_exist[MAX_PAGES_X*MAX_PAGES_Y];
 
+// Simple 2D texture representing the complete world, just one pixel per page.
 static sf::Texture tex_full_map;
 
 
@@ -684,4 +608,627 @@ void reload_map()
 	manage_page_pile_ranges();
 }
 
+void build_model();
+
+sf::Shader shader;
+
+
+static glm::mat4 projection;
+static glm::mat4 view;
+static int pvm_loc;
+
+void init_opengl(sf::RenderWindow& win)
+{
+	glewInit();
+	if(shader.loadFromFile("vertex_shader.glsl", "fragment_shader.glsl") == false)
+		abort();
+
+	glEnable(GL_CULL_FACE);
+	glCullFace(GL_BACK);
+	glEnable(GL_DEPTH_TEST);
+	glDepthMask(GL_TRUE);
+	glClearDepth(1.0);
+	glViewport(0, 0, win.getSize().x, win.getSize().y);
+
+
+	float ratio = static_cast<float>(win.getSize().x) / win.getSize().y;
+
+	projection = glm::perspective(glm::radians(60.0f), ratio, 0.1f, 4000.0f);
+
+	sf::Shader::bind(&shader);
+	int shader_id = shader.getNativeHandle();
+	pvm_loc = glGetUniformLocation(shader_id, "pvm");
+	printf("shader_id = %d, pvm_loc = %d\n", shader_id, pvm_loc);
+	sf::Shader::bind(0);
+
+}
+
+
+typedef struct __attribute__((packed))
+{
+	GLfloat x;
+	GLfloat y;
+	GLfloat z;
+} vec3_t;
+
+typedef struct __attribute__((packed))
+{
+	vec3_t position;
+//	vec3_t normal;
+	uint32_t color;
+} vertex_attrs_t;
+
+
+typedef struct
+{
+	uint32_t vao;
+	uint32_t vbo;
+	uint32_t n_triangles;
+} mesh_t;
+
+
+
+void free_mesh(mesh_t mesh)
+{
+	assert(mesh.vao > 0);
+	assert(mesh.vbo > 0);
+	assert(mesh.n_triangles > 0);
+
+	glDeleteBuffers(1, &mesh.vbo);
+	glDeleteBuffers(1, &mesh.vao);
+}
+
+// 31.5Mbytes
+#define MAX_CUBES_PER_MESH (32*32*32)
+#define MAX_TRIANGLES_PER_MESH (MAX_CUBES_PER_MESH*12)
+#define MAX_VERTICES_PER_MESH (MAX_TRIANGLES_PER_MESH*3)
+
+#define RGBA32(r_,g_,b_,a_)  ((r_) | ((g_)<<8) | ((b_)<<16) | ((a_)<<24))
+
+#define TEST_VOXMAP(x_, y_, z_, rl_) ((p_voxmap->voxels[(y_)*VOX_XS[rl_]*VOX_ZS[rl_]+(x_)*VOX_ZS[rl_]+(z_)] & 0x0f) >= display_limit[rl_])
+mesh_t voxmap_to_mesh(voxmap_t* p_voxmap, int x_start, int x_end, int y_start, int y_end, int z_start, int z_end, int pz, int rl)
+{
+	static vertex_attrs_t attrs[MAX_VERTICES_PER_MESH];
+
+	float width=1.0*VOX_RELATIONS[rl]*2.0;
+	float height=1.0*VOX_RELATIONS[rl]*2.0;
+	float length=1.0*VOX_RELATIONS[rl]*2.0;
+
+	GLfloat vertices[] = {
+	-width/2, -height/2, length/2,
+	width/2, -height/2, length/2,
+	width/2, height/2, length/2,
+	-width/2, -height/2, length/2,
+	width/2, height/2, length/2,
+	-width/2, height/2, length/2,
+
+	-width/2, -height/2, -length/2,
+	-width/2, height/2, -length/2,
+	width/2, height/2, -length/2,
+	-width/2, -height/2, -length/2,
+	width/2, height/2, -length/2,
+	width/2, -height/2, -length/2,
+
+	-width/2, height/2, -length/2,
+	-width/2, height/2, length/2,
+	width/2, height/2, length/2,
+	-width/2, height/2, -length/2,
+	width/2, height/2, length/2,
+	width/2, height/2, -length/2,
+
+	-width/2, -height/2, -length/2,
+	width/2, -height/2, -length/2,
+	width/2, -height/2, length/2,
+	-width/2, -height/2, -length/2,
+	width/2, -height/2, length/2,
+	-width/2, -height/2, length/2,
+
+	width/2, -height/2, -length/2,
+	width/2, height/2, -length/2,
+	width/2, height/2, length/2,
+	width/2, -height/2, -length/2,
+	width/2, height/2, length/2,
+	width/2, -height/2, length/2,
+
+	-width/2, -height/2, -length/2,
+	-width/2, -height/2, length/2,
+	-width/2, height/2, length/2,
+	-width/2, -height/2, -length/2,
+	-width/2, height/2, length/2,
+	-width/2, height/2, -length/2
+	};
+
+	const GLfloat normals[] = {
+	0.0f, 0.0f, 1.0f,
+	0.0f, 0.0f, 1.0f,
+	0.0f, 0.0f, 1.0f,
+	0.0f, 0.0f, 1.0f,
+	0.0f, 0.0f, 1.0f,
+	0.0f, 0.0f, 1.0f,
+
+	0.0f, 0.0f,-1.0f,
+	0.0f, 0.0f,-1.0f,
+	0.0f, 0.0f,-1.0f,
+	0.0f, 0.0f,-1.0f,
+	0.0f, 0.0f,-1.0f,
+	0.0f, 0.0f,-1.0f,
+
+	0.0f, 1.0f, 0.0f,
+	0.0f, 1.0f, 0.0f,
+	0.0f, 1.0f, 0.0f,
+	0.0f, 1.0f, 0.0f,
+	0.0f, 1.0f, 0.0f,
+	0.0f, 1.0f, 0.0f,
+
+	0.0f,-1.0f, 0.0f,
+	0.0f,-1.0f, 0.0f,
+	0.0f,-1.0f, 0.0f,
+	0.0f,-1.0f, 0.0f,
+	0.0f,-1.0f, 0.0f,
+	0.0f,-1.0f, 0.0f,
+
+	1.0f, 0.0f, 0.0f,
+	1.0f, 0.0f, 0.0f,
+	1.0f, 0.0f, 0.0f,
+	1.0f, 0.0f, 0.0f,
+	1.0f, 0.0f, 0.0f,
+	1.0f, 0.0f, 0.0f,
+
+	-1.0f, 0.0f, 0.0f,
+	-1.0f, 0.0f, 0.0f,
+	-1.0f, 0.0f, 0.0f,
+	-1.0f, 0.0f, 0.0f,
+	-1.0f, 0.0f, 0.0f,
+	-1.0f, 0.0f, 0.0f
+	};
+
+/*
+	const GLfloat vertices[] = {
+	-width/2, -height/2, length/2,
+	width/2, -height/2, length/2,
+	width/2, height/2, length/2,
+	-width/2, height/2, length/2,
+	-width/2, -height/2, -length/2,
+	-width/2, height/2, -length/2,
+	width/2, height/2, -length/2,
+	width/2, -height/2, -length/2,
+	-width/2, height/2, -length/2,
+	-width/2, height/2, length/2,
+	width/2, height/2, length/2,
+	width/2, height/2, -length/2,
+	-width/2, -height/2, -length/2,
+	width/2, -height/2, -length/2,
+	width/2, -height/2, length/2,
+	-width/2, -height/2, length/2,
+	width/2, -height/2, -length/2,
+	width/2, height/2, -length/2,
+	width/2, height/2, length/2,
+	width/2, -height/2, length/2,
+	-width/2, -height/2, -length/2,
+	-width/2, -height/2, length/2,
+	-width/2, height/2, length/2,
+	-width/2, height/2, -length/2
+	};
+
+	const GLfloat normals[] = {
+	0.0f, 0.0f, 1.0f,
+	0.0f, 0.0f, 1.0f,
+	0.0f, 0.0f, 1.0f,
+	0.0f, 0.0f, 1.0f,
+	0.0f, 0.0f,-1.0f,
+	0.0f, 0.0f,-1.0f,
+	0.0f, 0.0f,-1.0f,
+	0.0f, 0.0f,-1.0f,
+	0.0f, 1.0f, 0.0f,
+	0.0f, 1.0f, 0.0f,
+	0.0f, 1.0f, 0.0f,
+	0.0f, 1.0f, 0.0f,
+	0.0f,-1.0f, 0.0f,
+	0.0f,-1.0f, 0.0f,
+	0.0f,-1.0f, 0.0f,
+	0.0f,-1.0f, 0.0f,
+	1.0f, 0.0f, 0.0f,
+	1.0f, 0.0f, 0.0f,
+	1.0f, 0.0f, 0.0f,
+	1.0f, 0.0f, 0.0f,
+	-1.0f, 0.0f, 0.0f,
+	-1.0f, 0.0f, 0.0f,
+	-1.0f, 0.0f, 0.0f,
+	-1.0f, 0.0f, 0.0f
+	};
+*/
+
+	int v = 0;
+	for(int yy=y_start; yy<y_end; yy++)
+	{
+		for(int xx=x_start; xx<x_end; xx++)
+		{
+			for(int zz=z_start; zz<z_end; zz++)
+			{
+				if(TEST_VOXMAP(xx, yy, zz, rl))
+				{
+					/*
+						Faces:
+						0 = neg vox_y side
+						1 = pos vox_y side
+						2 = top
+						3 = bottom
+						4 = pos vox_x side
+						5 = neg vox_x side
+						
+					*/
+					int ignore_faces[6] = {0};
+
+					if(xx > 0 && TEST_VOXMAP(xx-1, yy, zz, rl))
+						ignore_faces[5] = 1;
+
+					if(xx < VOX_XS[rl]-1 && TEST_VOXMAP(xx+1, yy, zz, rl))
+						ignore_faces[4] = 1;
+
+					if(yy > 0 && TEST_VOXMAP(xx, yy-1, zz, rl))
+						ignore_faces[0] = 1;
+
+					if(yy < VOX_YS[rl]-1 && TEST_VOXMAP(xx, yy+1, zz, rl))
+						ignore_faces[1] = 1;
+
+					if(zz > 0 && TEST_VOXMAP(xx, yy, zz-1, rl))
+						ignore_faces[3] = 1;
+
+					if(zz < VOX_ZS[rl]-1 && TEST_VOXMAP(xx, yy, zz+1, rl))
+						ignore_faces[2] = 1;
+
+					int r, g, b, a;
+
+					int range = view2d_max_z - view2d_min_z;
+
+
+					int out_z = pz*VOX_ZS[rl]+zz;
+					out_z *= VOX_UNITS[rl];
+					out_z -= (MAX_PAGES_Z/2)*MAP_PAGE_Z_H_MM;
+
+					r = (2*COLMAX*(out_z-view2d_min_z))/(range)-COLMAX;
+					if(r < 0) r = 0; else if(r > COLMAX) r = COLMAX;
+
+					b = (2*COLMAX*(view2d_max_z-out_z))/(range)-COLMAX;
+					if(b < 0) b = 0; else if(b > COLMAX) b = COLMAX;
+
+					//g =  0;
+					g =  COLMAX - r - b;
+					if(g < 0) g = 0; else if(g > COLMAX) g = COLMAX;
+
+					int ysq = 2000/(50+abs(r-g));
+					r += ysq;
+					g += ysq;
+
+					r += b/3;
+					g += b/3;
+
+					r += 25;
+					g += 25;
+					b += 25;
+					if(r < 0) r = 0; else if(r > 255) r = 255;
+					if(g < 0) g = 0; else if(g > 255) g = 255;
+
+					a = 255;
+
+					float x = (xx-x_start)*VOX_RELATIONS[rl]*2.0;
+					float y = (zz-z_start)*VOX_RELATIONS[rl]*2.0;
+					float z = (-1*(yy-y_start))*VOX_RELATIONS[rl]*2.0;
+
+					//x = 0.0;
+					//y = 0.0;
+					//z = 0.0;
+
+					// No need to check this limit in the inmost loop. Let's ignore full cubes, if we need to.
+					if(v >= MAX_VERTICES_PER_MESH-36)
+					{
+						printf("WARNING: Mesh vertex limit exceeded - dropping some voxels\n");
+						goto SKIP_VOXELS;
+					}
+
+					for(int face=0; face<6; face++)
+					{
+						if(ignore_faces[face])
+							continue;
+
+
+						for(int i=face*6; i<(face+1)*6; i++)
+						{
+							attrs[v].position.x = vertices[i*3+0] + x;
+							attrs[v].position.y = vertices[i*3+1] + y;
+							attrs[v].position.z = vertices[i*3+2] + z;
+
+							//attrs[v].normal.x = normals[i*3+0];
+							//attrs[v].normal.y = normals[i*3+1];
+							//attrs[v].normal.z = normals[i*3+2];
+							if(face == 2) // top face: floor
+								attrs[v].color = RGBA32(r, g, b, a);
+							else if(face == 3) // bottom face: ceiling
+								attrs[v].color = RGBA32(r/2, g/2, b/2, a);
+							else if(face == 0 || face == 1)
+								attrs[v].color = RGBA32(11*r/16, 11*g/16, 11*b/16, a);
+							else
+								attrs[v].color = RGBA32(13*r/16, 13*g/16, 13*b/16, a);
+							v++;
+						}
+
+					}
+
+				}
+				
+			}
+		}
+	}
+
+	SKIP_VOXELS:;
+
+
+	int32_t mem = (v*sizeof(vertex_attrs_t));
+	printf("Mesh generation done. vertex count=%d Total memory: %d bytes\n", v, mem);
+
+
+	mesh_t ret;
+
+	ret.n_triangles = v/3;
+
+	glGenVertexArrays(1, &ret.vao);
+	glGenBuffers(1, &ret.vbo);
+
+	glBindVertexArray(ret.vao);
+
+	glBindBuffer(GL_ARRAY_BUFFER, ret.vbo);
+
+	glBufferData(GL_ARRAY_BUFFER, v*sizeof(vertex_attrs_t), attrs, GL_STATIC_DRAW);  
+
+	// vertex positions, layout 0
+	glEnableVertexAttribArray(0);	
+	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(vertex_attrs_t), (void*)offsetof(vertex_attrs_t, position));
+
+	// colors, layout 1
+	glEnableVertexAttribArray(1);
+	glVertexAttribPointer(1, 4, GL_UNSIGNED_BYTE, GL_TRUE, sizeof(vertex_attrs_t), (void*)offsetof(vertex_attrs_t, color));
+
+	// vertex normals
+//	glEnableVertexAttribArray(1);	
+//	glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, sizeof(vertex_attrs_t), (void*)offsetof(vertex_attrs_t, normal));
+
+	glBindVertexArray(0);
+
+	return ret;
+}
+
+
+/*
+	3D world coordinates are half blocks of the resolevel0, e.g. 16mm if rl0 resolution is 32mm.
+	This is to optimize the memory usage for meshes: vertex coordinates can use smallest possible
+	integer type (for example, cube at 0,0,0mm has vertices at -16mm, 16mm, etc. - this is 1 unit).
+
+	With this, giving 10 bits per coordinate component, with 32mm rl0 (16mm 3D world resolution), maximum
+	mesh size is 16384*16384*16384 mm.
+
+	3d piece uses all positive coordinates, and is referenced to its corner.
+
+	The 3D world coordinates are referenced to zero, by simply dividing the absolute mm by rl0_size/2 (16 for example)
+*/
+
+typedef struct
+{
+	// Start coordinates in 3D World coordinates.
+	int x_start;
+	int y_start;
+	int z_start;
+	// Size in 3D World blocks - end coordinates are start+size
+	// Use xs = 0 to denote empty piece
+	int xs;
+	int ys;
+	int zs;
+
+	// Referencing to the original page
+	int px;
+	int py;
+	int pz;
+	int rl;
+
+	mesh_t mesh;
+} piece_3d_t;
+
+#define MAX_MESHES 1024
+
+piece_3d_t pieces_3d[MAX_MESHES];
+
+#include <glm/gtx/string_cast.hpp>
+
+static void render_piece(piece_3d_t* p)
+{
+	if(p->mesh.n_triangles < 1)
+		return;
+
+	glBindVertexArray(p->mesh.vao);
+
+	// No need to rotate the models, only translate
+	glm::mat4 model = glm::mat4(1.0f);
+	model = glm::translate(model, glm::vec3(p->x_start, p->z_start, -1*p->y_start));	
+
+//	printf("render_piece vertices=%d\n", p->mesh.n_triangles*3);
+
+	// Pieces are large, and there are few of them (several hundreds).
+	// Don't calculate projection*view*model on GPU for every vertex.
+	glm::mat4 pvm = projection * view * model;
+//	printf("P %s\n", glm::to_string(projection).c_str());
+//	printf("V %s\n", glm::to_string(view).c_str());
+//	printf("M %s\n", glm::to_string(model).c_str());
+//	printf("PVM %s\n", glm::to_string(pvm).c_str());
+
+	glUniformMatrix4fv(pvm_loc, 1, GL_FALSE, glm::value_ptr(pvm));
+	glDrawArrays(GL_TRIANGLES, 0, p->mesh.n_triangles*3);
+}
+
+void render_3d(double campos_x, double campos_y, double campos_z, double camera_yaw, double camera_vertang)
+{
+	sf::Shader::bind(&shader);
+
+	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+
+	glm::vec3 pos;
+	pos.x = campos_x / ((double)VOX_UNITS[0]/2.0);
+	pos.y = campos_z / ((double)VOX_UNITS[0]/2.0);
+	pos.z = campos_y / ((double)VOX_UNITS[0]/2.0);
+
+	glm::vec3 targ;
+	targ.x = pos.x + 1.0*cos(camera_vertang)*sin(camera_yaw);
+	targ.y = pos.y + 1.0*sin(camera_vertang);
+	targ.z = pos.z + 1.0*cos(camera_vertang)*cos(camera_yaw);
+
+	glm::vec3 up = glm::vec3(0.0, 1.0, 0.0);
+	
+	view = glm::lookAt(pos, targ, up);
+
+
+	for(int i=0; i<MAX_MESHES; i++)
+	{
+		if(pieces_3d[i].xs > 0)
+		{
+			render_piece(&pieces_3d[i]);
+		}
+	}
+
+	glBindVertexArray(0); // Unbind the VAO only once, no need to do it for every object
+
+
+	sf::Shader::bind(NULL);
+
+
+}
+
+static int find_free_piece()
+{
+	for(int i=0; i<MAX_MESHES; i++)
+	{
+		if(pieces_3d[i].xs == 0)
+			return i;
+	}
+
+	return -1;
+}
+
+static int find_piece_by_page(int px, int py, int pz)
+{
+	for(int i=0; i<MAX_MESHES; i++)
+	{
+		if(pieces_3d[i].px == px && pieces_3d[i].py == py && pieces_3d[i].pz == pz)
+			return i;
+	}
+
+	return -1;
+}
+
+
+void read_voxmap_to_meshes(int px, int py, int pz, int rl)
+{
+	voxmap_t voxmap;
+	
+	int ret = read_uncompressed_voxmap(&voxmap, gen_fname(mapdir, px, py, pz, rl));
+
+	if(ret >= 0)
+	{
+		printf("INFO: Succesfully loaded file from the disk (%d,%d,%d,rl%d)\n", px, py, pz, rl);
+
+		assert(voxmap.header.xs == VOX_XS[rl]);
+		assert(voxmap.header.ys == VOX_YS[rl]);
+		assert(voxmap.header.zs == VOX_ZS[rl]);
+
+		int pieces_x = VOX_XS[rl]/64;
+		if(pieces_x < 1) pieces_x = 1;
+		int pieces_y = VOX_YS[rl]/64;
+		if(pieces_y < 1) pieces_y = 1;
+		int pieces_z = VOX_ZS[rl]/64;
+		if(pieces_z < 1) pieces_z = 1;
+
+		int xs = VOX_XS[rl]/pieces_x;
+		int ys = VOX_YS[rl]/pieces_y;
+		int zs = VOX_ZS[rl]/pieces_z;
+
+		assert(xs*pieces_x == VOX_XS[rl]);
+		assert(ys*pieces_y == VOX_YS[rl]);
+		assert(zs*pieces_z == VOX_ZS[rl]);
+
+//		int y_piece = 0, x_piece = 0, z_piece = 0;
+		for(int y_piece = 0; y_piece < pieces_y; y_piece++)
+		{
+			for(int x_piece = 0; x_piece < pieces_x; x_piece++)
+			{
+				for(int z_piece = 0; z_piece < pieces_z; z_piece++)
+				{
+					int idx = find_free_piece();
+
+					printf("New mesh idx=%d, page(%d,%d,%d,rl%d), piece(%d,%d,%d)\n", 
+						idx, px, py, pz, rl, x_piece, y_piece, z_piece);
+
+					if(idx < 0)
+					{
+						printf("WARNING: read_voxmap_to_meshes: piece table full, stopping mesh generation.\n");
+						goto STOP_GEN;
+					}
+					mesh_t new_mesh = voxmap_to_mesh(&voxmap,
+						x_piece*xs, (x_piece+1)*xs,
+						y_piece*ys, (y_piece+1)*ys,
+						z_piece*zs, (z_piece+1)*zs,
+						pz, rl);
+
+					pieces_3d[idx].mesh = new_mesh;
+					pieces_3d[idx].px = px;
+					pieces_3d[idx].py = py;
+					pieces_3d[idx].pz = pz;
+					pieces_3d[idx].rl = rl;
+
+					pieces_3d[idx].xs = xs*VOX_RELATIONS[rl]*2;
+					pieces_3d[idx].ys = ys*VOX_RELATIONS[rl]*2;
+					pieces_3d[idx].zs = zs*VOX_RELATIONS[rl]*2;
+
+					pieces_3d[idx].x_start = (px-MAX_PAGES_X/2)*VOX_XS[0]*2 + x_piece*xs*VOX_RELATIONS[rl]*2;
+					pieces_3d[idx].y_start = (py-MAX_PAGES_Y/2)*VOX_YS[0]*2 + y_piece*ys*VOX_RELATIONS[rl]*2;
+					pieces_3d[idx].z_start = (pz-MAX_PAGES_Z/2)*VOX_ZS[0]*2 + z_piece*zs*VOX_RELATIONS[rl]*2;
+
+					printf("size (%d, %d, %d), start (%d,%d,%d)\n", 
+						pieces_3d[idx].xs, pieces_3d[idx].ys, pieces_3d[idx].zs,
+						pieces_3d[idx].x_start, pieces_3d[idx].y_start, pieces_3d[idx].z_start);
+
+
+				}
+
+			}
+
+		}
+
+		STOP_GEN:;
+		deinit_voxmap(&voxmap);
+	}
+}
+
+int manage_mesh_ranges()
+{
+
+//	int px = MAX_PAGES_X/2;
+//	int py = MAX_PAGES_Y/2;
+//	int pz = MAX_PAGES_Z/2;
+	for(int py = MAX_PAGES_Y/2-2; py < MAX_PAGES_Y/2+2; py++)
+	{
+		for(int px = MAX_PAGES_X/2-2; px < MAX_PAGES_X/2+2; px++)
+		{
+			for(int pz = MAX_PAGES_Z/2-2; pz < MAX_PAGES_Z/2+2; pz++)
+			{
+				if(find_piece_by_page(px, py, pz) == -1)
+				{
+					read_voxmap_to_meshes(px, py, pz, 1);
+				}
+			}
+
+		}
+
+	}
+
+	return 0;
+
+}
 
