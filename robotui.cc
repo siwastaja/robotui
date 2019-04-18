@@ -68,9 +68,6 @@
 
 
 
-int pict_id, pict_bpp, pict_xs, pict_ys, dbg_boost;
-uint8_t pict_data[1000000];
-
 char status_text[2000];
 
 uint32_t robot_id = 0xacdcabba;
@@ -81,7 +78,7 @@ sf::Font arial;
 int screen_x = 1200;
 int screen_y = 700;
 
-double click_x, click_y;
+double click_x_mm, click_y_mm;
 
 double mm_per_pixel = 40.0;
 double origin_x = 0;
@@ -405,7 +402,7 @@ void draw_texts(sf::RenderWindow& win)
 	t.setPosition(screen_x/2-bot_box_xs/2+10,screen_y-51-30);
 	win.draw(t);
 
-	sprintf(buf, "cursor: x=%d  y=%d  mm", (int)click_x, (int)click_y);
+	sprintf(buf, "cursor: x=%d  y=%d  mm", (int)click_x_mm, (int)click_y_mm);
 	t.setString(buf);
 	t.setCharacterSize(14);
 	t.setFillColor(sf::Color(0,0,0, 120));
@@ -570,7 +567,7 @@ void draw_tof_ampl(sf::RenderWindow& win, int xs, int ys, uint8_t* img, int x_on
 		{
 			int pixval;
 			pixval = img[iny*xs+inx];
-			if(dbg_boost) { pixval*=4; pixval+=16; if(pixval>255) pixval=255;}
+			//if(dbg_boost) { pixval*=4; pixval+=16; if(pixval>255) pixval=255;}
 
 			pix[4*(yy*xs+xx)+0] = pixval;
 			pix[4*(yy*xs+xx)+1] = pixval;
@@ -867,193 +864,6 @@ void draw_tof_raws(sf::RenderWindow& win)
 
 		#endif
 	}
-}
-
-void draw_picture(sf::RenderWindow& win)
-{
-	if(pict_id < 0 || pict_xs < 1 || pict_ys < 1 || pict_xs > 500 || pict_ys > 500)
-	{
-		return;
-	}
-
-	static uint8_t pixels[500*500*4];
-/*	if(pict_bpp == 1)
-	{
-		for(int i=0; i<pict_xs*pict_ys; i++)
-		{
-			pixels[4*i+0] = pict_data[i];
-			pixels[4*i+1] = pict_data[i];
-			pixels[4*i+2] = pict_data[i];
-			pixels[4*i+3] = 255;
-		}
-	}
-*/
-
-	sf::Vector2i m = sf::Mouse::getPosition(win);
-
-
-	float scale = 8.0;
-
-	sf::Texture t;
-	t.create(pict_xs, pict_ys);
-	t.setSmooth(false);
-	sf::Sprite sprite;
-
-	float mx = m.x;
-	float my = m.y;
-
-	int pic_x = 15, pic_y;
-#ifdef TOF_DEV
-	if(pict_id==100)
-	{
-		pic_y = 15+scale*0*pict_ys+10;
-		mx -= 15; my -= 15+scale*pict_ys+10;
-	}
-	else if(pict_id==101 || pict_id==110)
-	{
-		pic_y = 15+scale*1*pict_ys+20;
-		mx -= 15; my -= 15+2*scale*pict_ys+20;
-	}
-	else
-	{
-#endif
-		pic_y = 15;
-		mx -= 15; my -= 15;
-#ifdef TOF_DEV
-	}
-#endif
-	sprite.setPosition(pic_x, pic_y);
-
-	mx /= scale;
-	my /= scale;
-
-	int process_as_dist = 0;
-
-	if(pict_id == 1 || pict_id == 2 || pict_id == 3 || pict_id == 4) // ignore map
-	{
-		for(int i=0; i<pict_xs*pict_ys; i++)
-		{
-			if(pict_data[i])
-			{
-				pixels[4*i+0] = 255;
-				pixels[4*i+1] = 128;
-				pixels[4*i+2] = 50;
-			}
-			else
-			{
-				pixels[4*i+0] = 0;
-				pixels[4*i+1] = 0;
-				pixels[4*i+2] = 0;
-			}
-			pixels[4*i+3] = 255;
-		}
-	}
-	else if(pict_id == 101 || pict_id == 5 || pict_id == 7 || pict_id == 9) // amplitudes
-	{
-		for(int i=0; i<pict_xs*pict_ys; i++)
-		{
-			int val = pict_data[i];
-			if(dbg_boost) { val*=4; if(val>255) val=255;}
-			pixels[4*i+0] = val;
-			pixels[4*i+1] = val;
-			pixels[4*i+2] = val;
-			pixels[4*i+3] = 255;
-		}
-	}
-	else if(pict_id == 100 || pict_id == 6 || pict_id == 8 || pict_id == 10 || pict_id == 110) // distances
-	{
-		process_as_dist = 1;
-		for(int i=0; i<pict_xs*pict_ys; i++)
-		{
-
-			int dist = ((uint16_t*)pict_data)[i];
-			int r, g, b;
-
-			if(dist == 0)
-			{
-				r = 0; g = 0; b = 50;
-			}
-			else if(dist > 6000)
-			{
-				r = 200; g = 200; b = 200;
-			}
-			else
-			{
-				float blue_dist=6000;
-				float percolor = blue_dist/3.0;
-
-				float mm = dist;
-				float f_r = 1.0 - fabs(mm-0*percolor)/percolor;
-				float f_g = 1.0 - fabs(mm-1*percolor)/percolor;
-				float f_b = 1.0 - fabs(mm-2*percolor)/percolor;
-
-				r = f_r*256.0; if(r<0) r=0; else if(r>255) r=255;
-				g = f_g*256.0; if(g<0) g=0; else if(g>255) g=255;
-				b = f_b*256.0; if(b<0) b=0; else if(b>255) b=255;
-
-			}
-
-			pixels[4*i+0] = r;
-			pixels[4*i+1] = g;
-			pixels[4*i+2] = b;
-			pixels[4*i+3] = 255;
-
-		}
-	}
-
-	sf::Text te2;
-	char tbuf2[16];
-	if(mx >= 0 && mx < pict_xs && my >= 0 && my <= pict_ys)
-	{
-		int imy = (int)my;
-		int imx = (int)mx;
-		pixels[4*(imy*pict_xs+imx)+0] = 128;
-		pixels[4*(imy*pict_xs+imx)+1] = 255;
-		pixels[4*(imy*pict_xs+imx)+2] = 255;
-		pixels[4*(imy*pict_xs+imx)+3] = 255;
-
-		int val;
-		if(process_as_dist)
-			val = ((uint16_t*)pict_data)[imy*pict_xs+imx];
-		else
-			val = pict_data[imy*pict_xs+imx];
-
-
-		sprintf(tbuf2, "(%d,%d)=%d", imx, imy, val);
-		te2.setFont(arial);
-		te2.setFillColor(sf::Color(0,0,0,255));
-		te2.setString(tbuf2);
-		te2.setCharacterSize(12);
-		te2.setPosition(pic_x+scale*mx+8, pic_y+scale*my-5);
-
-	}
-
-	t.update(pixels);
-	sprite.setTexture(t);
-	sprite.setScale(sf::Vector2f(scale, scale));
-	win.draw(sprite);
-	win.draw(te2);
-	te2.setFillColor(sf::Color(255,255,255,255));
-	te2.setPosition(pic_x+scale*mx+8-1, pic_y+scale*my-5-1);
-	win.draw(te2);
-
-	{
-		sf::Text te;
-		char tbuf[16];
-		sprintf(tbuf, "ID=%d", pict_id);
-		te.setFont(arial);
-		te.setFillColor(sf::Color(0,0,0,255));
-		te.setString(tbuf);
-		te.setCharacterSize(9);
-		te.setPosition(20,2);
-		win.draw(te);
-	}
-
-
-#ifdef TOF_DEV
-	pict_id = -1;
-#endif
-
 }
 
 void draw_robot(sf::RenderWindow& win)
@@ -1773,25 +1583,6 @@ int parse_message(uint16_t id, uint32_t len)
 		}
 		break;
 
-		case 442: // Picture
-		{
-			pict_id = I16FROMBUF(rxbuf, 0);
-			pict_bpp = rxbuf[2];
-			pict_xs = I16FROMBUF(rxbuf, 3);
-			pict_ys = I16FROMBUF(rxbuf, 5);
-			printf("Picture msg: id=%u bytes_per_pixel=%u xs=%u ys=%u\n", pict_id, pict_bpp, pict_xs, pict_ys);
-			int pict_size = pict_bpp*pict_xs*pict_ys;
-			if(pict_size > 100000)
-			{
-				printf("Ignoring oversized image.\n");
-				pict_id = -1;
-			}
-			else
-				memcpy(pict_data, &rxbuf[7], pict_size);
-		}
-		break;
-
-
 	#endif
 
 		case 445: // State vector
@@ -1816,82 +1607,265 @@ int parse_message(uint16_t id, uint32_t len)
 
 	return 0;
 }
-/*
-void OmaCube(Vector3 position, float width, float height, float length, Color color)
+
+typedef struct
 {
-    float x = 0.0f;
-    float y = 0.0f;
-    float z = 0.0f;
+	int enabled;
+	int x;
+	int y;
+	int xs;
+	int ys;
+	int text_size;
+	sf::Color color;
+	char* text;
+} popup_menu_item_t;
 
-    if (rlCheckBufferLimit(36)) rlglDraw();
+#define POPUP_MENU_MAX_ITEMS 8
+typedef struct
+{
+	int enabled;
+	int point_x;
+	int point_y;
+	int x;
+	int y;
+	int xs;
+	int ys;
+	int n_items;
+	popup_menu_item_t items[POPUP_MENU_MAX_ITEMS];
+} popup_menu_t;
 
-    rlPushMatrix();
-        // NOTE: Transformation is applied in inverse order (scale -> rotate -> translate)
-        rlTranslatef(position.x, position.y, position.z);
-        //rlRotatef(45, 0, 1, 0);
-        //rlScalef(1.0f, 1.0f, 1.0f);   // NOTE: Vertices are directly scaled on definition
+#define MENU_ITEM_XS 180
+#define MENU_ITEM_YS 45
+#define MENU_ITEM_YGAP 55
+popup_menu_t popup_menu =
+{
+	0,
+	0,
+	0,
+	0,
+	0,
+	10,
+	10,
+	5,
+	{
+		{
+			1,
+			0, 0*MENU_ITEM_YGAP,
+			MENU_ITEM_XS, MENU_ITEM_YS,
+			16,
+			sf::Color(180,180,180,255),
+			"Explore 3D"
+		},
+		{
+			1,
+			0, 1*MENU_ITEM_YGAP,
+			MENU_ITEM_XS, MENU_ITEM_YS,
+			16,
+			sf::Color(210,160,160,255),
+			"Route here"
+		},
+		{
+			1,
+			0, 2*MENU_ITEM_YGAP,
+			MENU_ITEM_XS, MENU_ITEM_YS,
+			16,
+			sf::Color(160,210,160,255),
+			"Turn here"
+		},
+		{
+			1,
+			0, 3*MENU_ITEM_YGAP,
+			MENU_ITEM_XS/2-8, MENU_ITEM_YS,
+			16,
+			sf::Color(160,160,210,255),
+			"Forward"
+		},
+		{
+			1,
+			MENU_ITEM_XS/2+8, 3*MENU_ITEM_YGAP,
+			MENU_ITEM_XS/2-8, MENU_ITEM_YS,
+			16,
+			sf::Color(160,160,210,255),
+			"Backward"
+		}
 
-        rlBegin(RL_TRIANGLES);
-            rlColor4ub(color.r, color.g, color.b, color.a);
+		
+	}	
+};
 
-            // Front face
-            rlVertex3f(x - width/2, y - height/2, z + length/2);  // Bottom Left
-            rlVertex3f(x + width/2, y - height/2, z + length/2);  // Bottom Right
-            rlVertex3f(x - width/2, y + height/2, z + length/2);  // Top Left
+const int x_margin = 8;
+const int y_margin = 8;
 
-            rlVertex3f(x + width/2, y + height/2, z + length/2);  // Top Right
-            rlVertex3f(x - width/2, y + height/2, z + length/2);  // Top Left
-            rlVertex3f(x + width/2, y - height/2, z + length/2);  // Bottom Right
-
-            // Back face
-            rlVertex3f(x - width/2, y - height/2, z - length/2);  // Bottom Left
-            rlVertex3f(x - width/2, y + height/2, z - length/2);  // Top Left
-            rlVertex3f(x + width/2, y - height/2, z - length/2);  // Bottom Right
-
-            rlVertex3f(x + width/2, y + height/2, z - length/2);  // Top Right
-            rlVertex3f(x + width/2, y - height/2, z - length/2);  // Bottom Right
-            rlVertex3f(x - width/2, y + height/2, z - length/2);  // Top Left
-
-            // Top face
-            rlVertex3f(x - width/2, y + height/2, z - length/2);  // Top Left
-            rlVertex3f(x - width/2, y + height/2, z + length/2);  // Bottom Left
-            rlVertex3f(x + width/2, y + height/2, z + length/2);  // Bottom Right
-
-            rlVertex3f(x + width/2, y + height/2, z - length/2);  // Top Right
-            rlVertex3f(x - width/2, y + height/2, z - length/2);  // Top Left
-            rlVertex3f(x + width/2, y + height/2, z + length/2);  // Bottom Right
-
-            // Bottom face
-            rlVertex3f(x - width/2, y - height/2, z - length/2);  // Top Left
-            rlVertex3f(x + width/2, y - height/2, z + length/2);  // Bottom Right
-            rlVertex3f(x - width/2, y - height/2, z + length/2);  // Bottom Left
-
-            rlVertex3f(x + width/2, y - height/2, z - length/2);  // Top Right
-            rlVertex3f(x + width/2, y - height/2, z + length/2);  // Bottom Right
-            rlVertex3f(x - width/2, y - height/2, z - length/2);  // Top Left
-
-            // Right face
-            rlVertex3f(x + width/2, y - height/2, z - length/2);  // Bottom Right
-            rlVertex3f(x + width/2, y + height/2, z - length/2);  // Top Right
-            rlVertex3f(x + width/2, y + height/2, z + length/2);  // Top Left
-
-            rlVertex3f(x + width/2, y - height/2, z + length/2);  // Bottom Left
-            rlVertex3f(x + width/2, y - height/2, z - length/2);  // Bottom Right
-            rlVertex3f(x + width/2, y + height/2, z + length/2);  // Top Left
-
-            // Left face
-            rlVertex3f(x - width/2, y - height/2, z - length/2);  // Bottom Right
-            rlVertex3f(x - width/2, y + height/2, z + length/2);  // Top Left
-            rlVertex3f(x - width/2, y + height/2, z - length/2);  // Top Right
-
-            rlVertex3f(x - width/2, y - height/2, z + length/2);  // Bottom Left
-            rlVertex3f(x - width/2, y + height/2, z + length/2);  // Top Left
-            rlVertex3f(x - width/2, y - height/2, z - length/2);  // Bottom Right
-
-        rlEnd();
-    rlPopMatrix();
+int is_popup_enabled(popup_menu_t* m)
+{
+	return m->enabled;
 }
-*/
+
+void enable_popup_menu(popup_menu_t* m, int point_x, int point_y)
+{
+
+	int max_x = 0;
+//	int total_ys = 0;
+	for(int i = 0; i < m->n_items; i++)
+	{
+		if(m->items[i].x + m->items[i].xs > max_x)
+			max_x = m->items[i].x + m->items[i].xs;
+	}
+
+	m->xs = x_margin*2 + max_x;
+	m->ys = y_margin*2 + m->items[m->n_items-1].y +  m->items[m->n_items-1].ys;
+
+	const int gap_to_point_x = 25;
+
+	if(point_x + m->xs + gap_to_point_x < screen_x) // Right side
+	{
+		m->x = point_x + gap_to_point_x;
+	}
+	else // left side
+	{
+		m->x = point_x - m->xs - gap_to_point_x;
+	}
+
+	m->y = point_y - m->ys/2;
+	if(m->y < 5) m->y = 5;
+	if(m->y > screen_y-m->ys-5) m->y = screen_y-m->ys-5;
+
+	m->point_x = point_x;
+	m->point_y = point_y;
+
+	m->enabled = 1;
+}
+
+int test_popup_click(popup_menu_t* m, int mx, int my)
+{
+	for(int i=0; i< m->n_items; i++)
+	{
+		if(mx >= m->x+m->items[i].x && mx <= m->x+m->items[i].x+m->items[i].xs &&
+		   my >= m->y+m->items[i].y && my <= m->y+m->items[i].y+m->items[i].ys)
+		{
+			m->enabled = 0;
+			return i;
+		}
+	}
+
+	return -1;
+
+}
+
+void draw_popup_menu(sf::RenderWindow& win, popup_menu_t* m)
+{
+	if(!m->enabled)
+		return;
+
+	sf::Text t;
+	char buf[256];
+	t.setFont(arial);
+
+	sf::RectangleShape rect(sf::Vector2f(m->xs, m->ys));
+	rect.setPosition(m->x, m->y);
+	rect.setFillColor(sf::Color(200,210,255,160));
+	win.draw(rect);
+
+	for(int i=0; i<m->n_items; i++)
+	{
+		sf::RectangleShape but(sf::Vector2f(m->items[i].xs, m->items[i].ys));
+		but.setOutlineThickness(2.0);
+		but.setOutlineColor(sf::Color(0,0,0,180));
+
+		but.setPosition(x_margin+m->x+m->items[i].x, y_margin+m->y+m->items[i].y);
+		but.setFillColor(m->items[i].color);
+		win.draw(but);
+
+		sprintf(buf, "%s", m->items[i].text);
+		t.setString(buf);
+		t.setCharacterSize(m->items[i].text_size);
+		t.setFillColor(sf::Color(0,0,0,255));
+		t.setPosition(x_margin+m->x+m->items[i].x+5, y_margin+m->y+m->items[i].y+7);
+		win.draw(t);
+	}
+
+
+	const double r1 = 15.0;
+	const double r2 = 6.0;
+
+	sf::CircleShape circ(r1);
+	circ.setOrigin(r1, r1);
+	circ.setFillColor(sf::Color(100,255,255,100));
+	circ.setOutlineThickness(1.0);
+	circ.setOutlineColor(sf::Color(0,0,0,100));
+	circ.setPosition(m->point_x, m->point_y);
+	win.draw(circ);
+
+	circ.setRadius(r2);
+	circ.setOrigin(r2, r2);
+	circ.setFillColor(sf::Color(100,255,255,160));
+	win.draw(circ);
+
+
+}
+
+float campos_x = 0.0;
+float campos_y = 0.0;
+float campos_z = 0.0;
+
+double camera_yaw = 0.0;
+double camera_pitch = 0.0;
+
+bool view_3d = false;
+bool animate_jump_in = false;
+int animate_frame = 0;
+
+float animate_dx, animate_dy, animate_dz, animate_dyaw, animate_dpitch;
+
+#define ANIMATE_FRAMES 30
+
+void jump_in(double x_mm, double y_mm)
+{
+	campos_x = x_mm;
+	campos_y = y_mm;
+//	campos_z = (view2d_min_z+view2d_max_z)/2;
+	campos_z = view2d_min_z + (view2d_max_z-view2d_min_z)/4 + mm_per_pixel*500.0;
+	if(campos_z > view2d_max_z+25000) campos_z = view2d_max_z+25000;
+	camera_yaw = M_PI/2.0;
+	camera_pitch = DEGTORAD(-89.0);
+
+	animate_dx = 0.0;
+	animate_dy = 0.0;
+
+	animate_dyaw = 0.0;
+
+	double target_z = (view2d_min_z+view2d_max_z)/2;
+	double target_pitch = 0.0;
+	
+	animate_dz = (target_z-campos_z)/(double)ANIMATE_FRAMES;
+	animate_dpitch = (target_pitch-camera_pitch)/(double)ANIMATE_FRAMES;
+
+	view_3d = true;
+	animate_jump_in = true;
+	animate_frame = 0;
+
+}
+
+void animate()
+{
+	if(!animate_jump_in)
+		return;
+
+	campos_x += animate_dx;
+	campos_y += animate_dy;
+	campos_z += animate_dz;
+	camera_yaw += animate_dyaw;
+	camera_pitch += animate_dpitch;
+
+	animate_frame++;
+
+	if(animate_frame >= ANIMATE_FRAMES)
+		animate_jump_in = false;
+
+
+}
+
+
 
 int main(int argc, char** argv)
 {
@@ -1969,59 +1943,21 @@ int main(int argc, char** argv)
 	decors[INFO_STATE_CHARGING].loadFromFile("decoration/charging.png");
 	decors[INFO_STATE_DAIJUING].loadFromFile("decoration/party.png");
 
-
-	sfml_gui gui(win, arial);
-
-	#define BUT_WIDTH 220
-
-	int but_start_x = screen_x-BUT_WIDTH;
-
-	int but_localize    = gui.add_button(but_start_x, 50 + 0*35, 140, 25, "     Localize (init)", DEF_BUT_COL, DEF_BUT_FONT_SIZE+2, -1, DEF_BUT_COL_PRESSED, false);
-	int but_stop        = gui.add_button(but_start_x, 50 + 1*35, 65, 25, "Stop", DEF_BUT_COL, DEF_BUT_FONT_SIZE+2, -1, DEF_BUT_COL_PRESSED, false);
-
-	int but_route     = gui.add_button(but_start_x, 60 + 2*35, 100, 25, "Route", DEF_BUT_COL, DEF_BUT_FONT_SIZE, SYM_ROUTE, DEF_BUT_COL_PRESSED, false);
-	int but_manu_fwd  = gui.add_button(but_start_x, 60 + 3*35, 100, 25, "Manual fwd", DEF_BUT_COL, DEF_BUT_FONT_SIZE, SYM_MANUAL, DEF_BUT_COL_PRESSED, false);
-	int but_manu_back = gui.add_button(but_start_x+110, 60 + 3*35, 30, 25, "rev", DEF_BUT_COL, DEF_BUT_FONT_SIZE, -1, DEF_BUT_COL_PRESSED, false);
-	int but_force_fwd = gui.add_button(but_start_x, 60 + 4*35, 100, 25, "Force fwd", DEF_BUT_COL, DEF_BUT_FONT_SIZE, SYM_FORCE, DEF_BUT_COL_PRESSED, false);
-	int but_force_back= gui.add_button(but_start_x+110, 60 + 4*35, 30, 25, "rev", DEF_BUT_COL, DEF_BUT_FONT_SIZE, -1, DEF_BUT_COL_PRESSED, false);
-	int but_pose      = gui.add_button(but_start_x, 60 + 5*35, 100, 25, "Rotate pose", DEF_BUT_COL, DEF_BUT_FONT_SIZE, SYM_POSE, DEF_BUT_COL_PRESSED, false);
-
-	int but_findcharger = gui.add_button(but_start_x, 70 + 6*35, 140, 25, "  Find charger", DEF_BUT_COL, DEF_BUT_FONT_SIZE, -1, DEF_BUT_COL_PRESSED, false);
-
-	int but_speedminus  = gui.add_button(but_start_x, 70 + 7*35, 25, 25, " -", DEF_BUT_COL, DEF_BUT_FONT_SIZE, -1, DEF_BUT_COL_PRESSED, false);
-	int but_speedplus  = gui.add_button(but_start_x+115, 70 + 7*35, 25, 25, " +", DEF_BUT_COL, DEF_BUT_FONT_SIZE, -1, DEF_BUT_COL_PRESSED, false);
-
-	int but_addconstraint  = gui.add_button(but_start_x, 70 + 8*35, 60, 25, "ADD", DEF_BUT_COL, DEF_BUT_FONT_SIZE, -1, DEF_BUT_COL_PRESSED, false);
-	int but_remconstraint  = gui.add_button(but_start_x+65, 70 + 8*35, 60, 25, "REM", DEF_BUT_COL, DEF_BUT_FONT_SIZE, -1, DEF_BUT_COL_PRESSED, false);
-
-	int but_state_vect[STATE_VECT_LEN];
-
-	for(int i=0; i<STATE_VECT_LEN; i++)
-	{
-		but_state_vect[i] = gui.add_button(but_start_x, 70 + 9*35 + i*25, 190, 18, state_vect_names[i], DEF_BUT_COL, /*font size:*/11, -1, DEF_BUT_COL_PRESSED, SYM_STOP);
-		state_vect_to_send.table[i] = received_state_vect.table[i] = 0;
-	}
 	
 
 	bool click_on = false;
-	bool left_click_on = false;
+	bool ignore_click = false;
 	double prev_click_x = 0.0, prev_click_y = 0.0;
+	double prev_click_x_mm = 0.0, prev_click_y_mm = 0.0;
 
+	
+
+	int click_start_x = 0, click_start_y = 0;
 
 	origin_x = mm_per_pixel*screen_x/2;
 	origin_y = mm_per_pixel*screen_y/2;
 
 
-
-	float campos_x = 0.0;
-	float campos_y = 0.0;
-	float campos_z = 0.0;
-
-	double camera_yaw = 0.0;
-	double camera_vertang = 0.0;
-
-
-	bool view_3d = false;
 
 	win.setActive(false);
 	win.pushGLStates();
@@ -2032,35 +1968,6 @@ int main(int argc, char** argv)
 	while(win.isOpen())
 	{
 		cnt++;
-		int gui_box_xs = BUT_WIDTH;
-		int gui_box_ys = screen_y-65;
-		int gui_box_x = screen_x-BUT_WIDTH-15;
-		int gui_box_y = 15;
-
-		gui.buttons[but_route]->pressed =      (click_mode==MODE_ROUTE);
-		gui.buttons[but_manu_fwd]->pressed =   (click_mode==MODE_MANUAL_FWD);
-		gui.buttons[but_manu_back]->pressed =  (click_mode==MODE_MANUAL_BACK);
-		gui.buttons[but_force_fwd]->pressed =  (click_mode==MODE_FORCE_FWD);
-		gui.buttons[but_force_back]->pressed = (click_mode==MODE_FORCE_BACK);
-		gui.buttons[but_pose]->pressed =       (click_mode==MODE_POSE);
-		gui.buttons[but_addconstraint]->pressed = (click_mode==MODE_ADDCONSTRAINT);
-		gui.buttons[but_remconstraint]->pressed = (click_mode==MODE_REMCONSTRAINT);
-
-		state_is_unsynchronized = 0;
-		for(int i=0; i<STATE_VECT_LEN; i++)
-		{
-			gui.buttons[but_state_vect[i]]->pressed = state_vect_to_send.table[i];
-			if(received_state_vect.table[i] != state_vect_to_send.table[i])
-			{
-				gui.buttons[but_state_vect[i]]->symbol = SYM_PLAY;
-				state_is_unsynchronized = 1;
-			}
-			else
-			{
-				gui.buttons[but_state_vect[i]]->symbol = SYM_STOP;
-			}
-		}
-
 
 		sf::Event event;
 		while (win.pollEvent(event))
@@ -2072,26 +1979,6 @@ int main(int argc, char** argv)
 				sf::Vector2u size = win.getSize();
 				screen_x = size.x;
 				screen_y = size.y;
-				but_start_x = screen_x-BUT_WIDTH;
-
-				gui.buttons[but_route]->x = but_start_x;
-				gui.buttons[but_manu_fwd]->x = but_start_x;
-				gui.buttons[but_manu_back]->x = but_start_x+110;
-				gui.buttons[but_force_fwd]->x = but_start_x;
-				gui.buttons[but_force_back]->x = but_start_x+110;
-				gui.buttons[but_pose]->x = but_start_x;
-				gui.buttons[but_localize]->x = but_start_x;
-				gui.buttons[but_stop]->x = but_start_x;
-				gui.buttons[but_findcharger]->x = but_start_x;
-				gui.buttons[but_speedminus]->x = but_start_x;
-				gui.buttons[but_speedplus]->x = but_start_x+115;
-				gui.buttons[but_addconstraint]->x = but_start_x;
-				gui.buttons[but_remconstraint]->x = but_start_x+65;
-		
-				for(int i=0; i<STATE_VECT_LEN; i++)
-				{
-					gui.buttons[but_state_vect[i]]->x = but_start_x;
-				}
 
 				sf::FloatRect visibleArea(0, 0, screen_x, screen_y);
 				win.setView(sf::View(visibleArea));
@@ -2182,139 +2069,24 @@ int main(int argc, char** argv)
 		{
 			sf::Vector2i localPosition = sf::Mouse::getPosition(win);
 
-			if(localPosition.x > gui_box_x-5 && localPosition.x < gui_box_x+gui_box_xs+5 && localPosition.y > gui_box_y-5 && localPosition.y < gui_box_y+gui_box_ys+5)
+
+			if(localPosition.x > 2 && localPosition.x < screen_x-2 && localPosition.y > 2 && localPosition.y < screen_y-2)
 			{
-				int but = gui.check_button_status();
-				if     (but == but_route)      click_mode = MODE_ROUTE;
-				else if(but == but_manu_fwd)   click_mode = MODE_MANUAL_FWD;
-				else if(but == but_force_fwd)  click_mode = MODE_FORCE_FWD;
-				else if(but == but_manu_back)  click_mode = MODE_MANUAL_BACK;
-				else if(but == but_force_back) click_mode = MODE_FORCE_BACK;
-				else if(but == but_pose)       click_mode = MODE_POSE;
-				else if(but == but_addconstraint) click_mode = MODE_ADDCONSTRAINT;
-				else if(but == but_remconstraint) click_mode = MODE_REMCONSTRAINT;
-
-				if(but == but_speedplus)
-				{
-					gui.buttons[but_speedplus]->pressed = true;
-
-					if(cnt&1)
-					{
-						if(cur_speed_limit < 10 || cur_speed_limit > 40)
-							cur_speed_limit++;
-						else
-							cur_speed_limit = cur_speed_limit*11/10;
-
-						if(cur_speed_limit > 70)
-							cur_speed_limit = 70;
-					}
-				}
-				else
-				{
-					if(gui.buttons[but_speedplus]->pressed)
-					{
-						gui.buttons[but_speedplus]->pressed = false;
-						speedlimit_msg(cur_speed_limit);
-					}
-				}
-
-				if(but == but_speedminus)
-				{
-					gui.buttons[but_speedminus]->pressed = true;
-
-					if(cnt&1)
-					{
-						if(cur_speed_limit < 11)
-							cur_speed_limit--;
-						else
-							cur_speed_limit = cur_speed_limit*10/11;
-
-						if(cur_speed_limit < 1)
-							cur_speed_limit = 1;
-					}
-					
-				}
-				else
-				{
-					if(gui.buttons[but_speedminus]->pressed)
-					{
-						gui.buttons[but_speedminus]->pressed = false;
-						speedlimit_msg(cur_speed_limit);
-					}
-				}
-				
-				if(but == but_localize)
-				{
-					gui.buttons[but_localize]->pressed = true;
-				}
-				else
-				{
-					if(gui.buttons[but_localize]->pressed)
-					{
-						gui.buttons[but_localize]->pressed = false;
-						mode_msg(3);
-					}
-				}
-
-				if(but == but_stop)
-				{
-					gui.buttons[but_stop]->pressed = true;
-				}
-				else
-				{
-					if(gui.buttons[but_stop]->pressed)
-					{
-						mode_msg(8);
-						gui.buttons[but_stop]->pressed = false;
-					}
-				}
-
-				if(but == but_findcharger)
-				{
-					gui.buttons[but_findcharger]->pressed = true;
-				}
-				else
-				{
-					if(gui.buttons[but_findcharger]->pressed)
-					{
-						go_charge_msg(0);
-						gui.buttons[but_findcharger]->pressed = false;
-					}
-				}
-
-				static bool statebut_pressed[STATE_VECT_LEN];
-				for(int i=0; i<STATE_VECT_LEN; i++)
-				{
-					if(but == but_state_vect[i])
-					{
-						if(!statebut_pressed[i])
-						{
-							statebut_pressed[i] = true;
-							state_vect_to_send.table[i] = received_state_vect.table[i]?0:1;
-							send(364, STATE_VECT_LEN, state_vect_to_send.table);
-						}				
-					}
-					else
-						statebut_pressed[i] = false;
-				}
+				int click_x = localPosition.x;
+				int click_y = localPosition.y;
+				click_x_mm = (localPosition.x * mm_per_pixel) - origin_x;
+				click_y_mm = (-1*localPosition.y * mm_per_pixel) + origin_y;
 
 
-
-
-			}
-			else if(localPosition.x > 10 && localPosition.x < screen_x-10 && localPosition.y > 10 && localPosition.y < screen_y-10)
-			{
-				click_x = (localPosition.x * mm_per_pixel) - origin_x;
-				click_y = (-1*localPosition.y * mm_per_pixel) + origin_y;
-
+#if 0
 				//if(sf::Mouse::isButtonPressed(sf::Mouse::Left))
 				if(0)
 				{
 //					bool shift_on = sf::Keyboard::isKeyPressed(sf::Keyboard::LShift) || sf::Keyboard::isKeyPressed(sf::Keyboard::RShift);
-					if(!left_click_on)
+					if(!click_on)
 					{
 						dest_type = click_mode;
-						dest_x = click_x; dest_y = click_y;
+						dest_x = click_x_mm; dest_y = click_y_mm;
 
 						int back = 0;
 
@@ -2410,7 +2182,7 @@ int main(int argc, char** argv)
 							} break;
 
 							case MODE_ADDCONSTRAINT: {
-								int x = click_x; int y = click_y;
+								int x = click_x_mm; int y = click_y_mm;
 								uint8_t test[8] = {  (x>>24)&0xff,(x>>16)&0xff,(x>>8)&0xff,(x>>0)&0xff,
 									(y>>24)&0xff, (y>>16)&0xff, (y>>8)&0xff, (y>>0)&0xff};
 
@@ -2427,7 +2199,7 @@ int main(int argc, char** argv)
 							} break;
 
 							case MODE_REMCONSTRAINT: {
-								int x = click_x; int y = click_y;
+								int x = click_x_mm; int y = click_y_mm;
 								uint8_t test[8] = {(x>>24)&0xff,(x>>16)&0xff,(x>>8)&0xff,(x>>0)&0xff,
 									(y>>24)&0xff, (y>>16)&0xff, (y>>8)&0xff, (y>>0)&0xff};
 
@@ -2447,32 +2219,85 @@ int main(int argc, char** argv)
 
 					}
 
-					left_click_on = true;
-				}
-				else
-					left_click_on = false;
-
-				if(sf::Mouse::isButtonPressed(sf::Mouse::Left))
-				{
-					if(click_on)
-					{
-						double dx = click_x - prev_click_x; double dy = click_y - prev_click_y;
-						origin_x += dx; origin_y -= dy;
-						camera_yaw +=  dx*-0.0001;
-						camera_vertang += dy*-0.0001;
-						if(camera_vertang < DEGTORAD(-89.0)) camera_vertang = DEGTORAD(-89.0);
-						if(camera_vertang > DEGTORAD(+89.0)) camera_vertang = DEGTORAD(+89.0);
-
-					}
-					else
-					{
-						prev_click_x = click_x; prev_click_y = click_y;
-					}
-
 					click_on = true;
 				}
 				else
 					click_on = false;
+
+#endif
+				if(sf::Mouse::isButtonPressed(sf::Mouse::Left))
+				{
+					if(is_popup_enabled(&popup_menu))
+					{
+						int but = test_popup_click(&popup_menu, click_x, click_y);
+						printf("Pressed %d\n", but);
+						click_on = false;
+						ignore_click = true;
+
+
+						if(but == 0)
+						{
+							jump_in(((double)popup_menu.point_x*mm_per_pixel) - origin_x,
+								((double)(-1*popup_menu.point_y) * mm_per_pixel) + origin_y);
+						}
+					}
+					else
+					{
+						if(click_on)
+						{
+							if(view_3d)
+							{
+								double dx = click_x - prev_click_x;
+								double dy = click_y - prev_click_y;
+
+								camera_yaw +=  dx*-0.004;
+								camera_pitch += dy*-0.004;
+								if(camera_pitch < DEGTORAD(-89.0)) camera_pitch = DEGTORAD(-89.0);
+								if(camera_pitch > DEGTORAD(+89.0)) camera_pitch = DEGTORAD(+89.0);
+
+								prev_click_x = click_x;
+								prev_click_y = click_y;
+
+							}
+							else
+							{
+								double dx = click_x_mm - prev_click_x_mm;
+								double dy = click_y_mm - prev_click_y_mm;
+
+								origin_x += dx;
+								origin_y -= dy;
+							}
+
+						}
+						else
+						{
+
+							click_start_x = click_x;
+							click_start_y = click_y;
+
+							prev_click_x = click_x;
+							prev_click_y = click_y;
+
+							prev_click_x_mm = click_x_mm;
+							prev_click_y_mm = click_y_mm;
+
+
+						}
+
+						click_on = true;
+					}
+				}
+				else
+				{
+					if(!ignore_click && click_on && abs(click_x-click_start_x) < 2 && abs(click_y-click_start_y) < 2)
+					{
+						if(!is_popup_enabled(&popup_menu))
+							enable_popup_menu(&popup_menu, click_x, click_y);
+					}
+					click_on = false;
+					ignore_click = false;
+
+				}
 			}
 
 			if(sf::Keyboard::isKeyPressed(sf::Keyboard::PageUp))
@@ -2567,16 +2392,6 @@ int main(int argc, char** argv)
 			else
 				show_routing = false;
 
-
-			if(sf::Keyboard::isKeyPressed(sf::Keyboard::C))
-			{
-				num_pers_dbgpoints = 0;
-				dbg_boost = 0;
-			}
-			if(sf::Keyboard::isKeyPressed(sf::Keyboard::B))
-			{
-				dbg_boost = 1;
-			}
 
 
 			float speed = 64.0;
@@ -2674,7 +2489,7 @@ int main(int argc, char** argv)
 		{
 			if(view_3d)
 			{
-				manage_mesh_ranges(campos_x, campos_y, campos_z, camera_yaw, camera_vertang);
+				manage_mesh_ranges(campos_x, campos_y, campos_z, camera_yaw, camera_pitch);
 			}
 			else
 			{
@@ -2690,7 +2505,7 @@ int main(int argc, char** argv)
 			win.popGLStates();
 			win.setActive(true);
 
-			render_3d(campos_x, campos_y, campos_z, camera_yaw, camera_vertang);
+			render_3d(campos_x, campos_y, campos_z, camera_yaw, camera_pitch);
 
 
 			win.setActive(false);
@@ -2719,31 +2534,7 @@ int main(int argc, char** argv)
 
 
 		draw_texts(win);
-		sf::RectangleShape rect(sf::Vector2f( gui_box_xs, gui_box_ys));
-		rect.setPosition(gui_box_x, gui_box_y);
-		rect.setFillColor(sf::Color(255,255,255,160));
-		win.draw(rect);
-		gui.draw_all_buttons();
 
-
-
-		{
-			sf::Text t;
-			char tbuf[256];
-			t.setFont(arial);
-
-			static int fx=0;
-
-			sprintf(tbuf, "SPEED %d", cur_speed_limit);
-			if(cur_speed_limit > 45)
-				t.setFillColor(sf::Color(255,0,0,255));
-			else
-				t.setFillColor(sf::Color(200,200,0,255));
-			t.setString(tbuf);
-			t.setCharacterSize(14);
-			t.setPosition(but_start_x+35, 70 + 7*35);
-			win.draw(t);
-		}
 
 		{
 			sf::Text t;
@@ -2796,9 +2587,12 @@ int main(int argc, char** argv)
 		}
 
 
+		draw_popup_menu(win, &popup_menu);
+
 
 		win.display();
 
+		animate();
 		win.clear(sf::Color(230,230,230));
 
 		usleep(100);

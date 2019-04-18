@@ -28,6 +28,7 @@
 #include <GL/glew.h>
 #include <SFML/Graphics.hpp>
 #include <SFML/OpenGL.hpp>
+#define GLM_ENABLE_EXPERIMENTAL
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
@@ -1515,7 +1516,7 @@ int manage_mesh_ranges(double campos_x, double campos_y, double campos_z, double
 
 	static const int extra_x[MAX_RESOLEVELS] = {1, 2, 4, 8, 8, 8};
 	static const int extra_y[MAX_RESOLEVELS] = {1, 2, 4, 8, 8, 8};
-	static const int extra_z[MAX_RESOLEVELS] = {1, 2, 3, 6, 6, 6};
+	static const int extra_z[MAX_RESOLEVELS] = {1, 2, 3, 8, 8, 8};
 
 
 	int start_x[MAX_RESOLEVELS];
@@ -1557,7 +1558,7 @@ int manage_mesh_ranges(double campos_x, double campos_y, double campos_z, double
 					{
 						// This page should be loaded at this rl - first free all lower rls
 
-						if(px==poc.px && py==poc.py && pz==poc.pz) printf("LOAD   (%3d,%3d,%3d,rl%d)\n", px, py, pz, rl);
+						// printf("LOAD   (%3d,%3d,%3d,rl%d)\n", px, py, pz, rl);
 
 						for(int lower_rl=rl+1; lower_rl<4; lower_rl++)
 							free_pieces_by_page_and_rl(px, py, pz, lower_rl);
