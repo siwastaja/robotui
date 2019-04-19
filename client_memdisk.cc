@@ -26,6 +26,7 @@
 #include <dirent.h>
 
 #include <GL/glew.h>
+#include <SFML/System.hpp>
 #include <SFML/Graphics.hpp>
 #include <SFML/OpenGL.hpp>
 #define GLM_ENABLE_EXPERIMENTAL
@@ -55,6 +56,8 @@ typedef struct
 	map_block_2d_t* blocks[8]; // Number of blocks is VOX_XS[rl]*VOX_YS[rl]
 } map_piece_2d_t;
 #endif
+
+static sf::RenderWindow* p_win;
 
 
 static uint8_t pages_exist[MAX_PAGES_X*MAX_PAGES_Y];
@@ -96,8 +99,8 @@ static void load_page_pile_from_disk(int px, int py, int rl, int do_reload)
 	for(int pz=0; pz < MAX_PAGES_Z; pz++)
 	{
 		voxmap_t voxmap;
-		
-		int ret = read_uncompressed_voxmap(&voxmap, gen_fname(mapdir, px, py, pz, rl));
+		static char fnamebuf[2048];
+		int ret = read_uncompressed_voxmap(&voxmap, gen_fname(mapdir, px, py, pz, rl, fnamebuf));
 
 		if(ret >= 0)
 		{
@@ -703,8 +706,13 @@ void free_mesh(mesh_t* mesh)
 	assert(mesh->vbo > 0);
 //	assert(mesh->n_triangles > 0);
 
+	mutex_gl.lock();
+	p_win->setActive(true);
+
 	glDeleteBuffers(1, &(mesh->vbo));
 	glDeleteBuffers(1, &(mesh->vao));
+	p_win->setActive(false);
+	mutex_gl.unlock();
 
 	mesh->vao = 0;
 	mesh->vbo = 0;
@@ -716,16 +724,18 @@ static void free_piece(int idx)
 {
 	assert(pieces_3d[idx].xs > 0);
 	free_mesh(&pieces_3d[idx].mesh);
-	pieces_3d[idx].xs = 0;
 	pieces_3d[idx].px = -1;
 	pieces_3d[idx].py = -1;
 	pieces_3d[idx].pz = -1;
 	pieces_3d[idx].rl = -1;
+	pieces_3d[idx].xs = 0;
 }
 
 
 void init_opengl(sf::RenderWindow& win)
 {
+	p_win = &win;
+
 	// Prebuild "pieces per map page" arrays:
 	for(int rl=0; rl < MAX_RESOLEVELS; rl++)
 	{
@@ -780,6 +790,11 @@ void init_opengl(sf::RenderWindow& win)
 #define RGBA32(r_,g_,b_,a_)  ((r_) | ((g_)<<8) | ((b_)<<16) | ((a_)<<24))
 
 #define TEST_VOXMAP(x_, y_, z_, rl_) ((p_voxmap->voxels[(y_)*VOX_XS[rl_]*VOX_ZS[rl_]+(x_)*VOX_ZS[rl_]+(z_)] & 0x0f) >= display_limit[rl_])
+
+
+sf::Mutex mutex_gl;
+
+
 mesh_t voxmap_to_mesh(voxmap_t* p_voxmap, int x_start, int x_end, int y_start, int y_end, int z_start, int z_end, int pz, int rl)
 {
 
@@ -1223,6 +1238,10 @@ mesh_t voxmap_to_mesh(voxmap_t* p_voxmap, int x_start, int x_end, int y_start, i
 
 	ret.n_triangles = v/3;
 
+	mutex_gl.lock();
+	p_win->setActive(true);
+
+
 	glGenVertexArrays(1, &ret.vao);
 	glGenBuffers(1, &ret.vbo);
 
@@ -1246,6 +1265,10 @@ mesh_t voxmap_to_mesh(voxmap_t* p_voxmap, int x_start, int x_end, int y_start, i
 //	glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, sizeof(vertex_attrs_t), (void*)offsetof(vertex_attrs_t, normal));
 
 	glBindVertexArray(0);
+
+	p_win->setActive(false);
+
+	mutex_gl.unlock();
 
 	return ret;
 }
@@ -1300,6 +1323,10 @@ static void render_piece(piece_3d_t* p)
 	if(n_outside == 8)
 		return;
 
+//	mutex_gl.lock();
+
+//	p_win->setActive(true);
+
 	glBindVertexArray(p->mesh.vao);
 
 	// No need to rotate the models, only translate
@@ -1315,9 +1342,14 @@ static void render_piece(piece_3d_t* p)
 
 	glUniformMatrix4fv(pvm_loc, 1, GL_FALSE, glm::value_ptr(pvm));
 	glDrawArrays(GL_TRIANGLES, 0, p->mesh.n_triangles*3);
+
+//	p_win->setActive(false);
+
+//	mutex_gl.unlock();
 }
 
-void render_3d(double campos_x, double campos_y, double campos_z, double camera_yaw, double camera_vertang)
+
+void render_3d(double campos_x, double campos_y, double campos_z, double camera_yaw, double camera_pitch)
 {
 	sf::Shader::bind(&shader);
 
@@ -1330,9 +1362,9 @@ void render_3d(double campos_x, double campos_y, double campos_z, double camera_
 	pos.z = -1*campos_y / ((double)VOX_UNITS[0]/2.0);
 
 	glm::vec3 targ;
-	targ.x = pos.x + 1.0*cos(camera_vertang)*cos(camera_yaw);
-	targ.y = pos.y + 1.0*sin(camera_vertang);
-	targ.z = pos.z - 1.0*cos(camera_vertang)*sin(camera_yaw);
+	targ.x = pos.x + 1.0*cos(camera_pitch)*cos(camera_yaw);
+	targ.y = pos.y + 1.0*sin(camera_pitch);
+	targ.z = pos.z - 1.0*cos(camera_pitch)*sin(camera_yaw);
 
 	glm::vec3 up = glm::vec3(0.0, 1.0, 0.0);
 	
@@ -1413,11 +1445,17 @@ static void free_all_pieces()
 
 }
 
+void reload_3d_map(double campos_x, double campos_y, double campos_z, double camera_yaw, double camera_pitch)
+{
+	free_all_pieces();
+	manage_mesh_ranges(campos_x, campos_y, campos_z, camera_yaw, camera_pitch, 1);
+}
+
 void read_voxmap_to_meshes(int px, int py, int pz, int rl)
 {
 	voxmap_t voxmap;
-	
-	int ret = read_uncompressed_voxmap(&voxmap, gen_fname(mapdir, px, py, pz, rl));
+	static char fnamebuf[2048];
+	int ret = read_uncompressed_voxmap(&voxmap, gen_fname(mapdir, px, py, pz, rl, fnamebuf));
 
 	if(ret >= 0)
 	{
@@ -1484,40 +1522,34 @@ void read_voxmap_to_meshes(int px, int py, int pz, int rl)
 	}
 }
 
-int manage_mesh_ranges(double campos_x, double campos_y, double campos_z, double camera_yaw, double camera_vertang)
+
+volatile int manag_px;
+volatile int manag_py;
+volatile int manag_pz;
+volatile int manag_xbias;
+volatile int manag_ybias;
+volatile int manag_zbias;
+
+
+static int do_manage_mesh_ranges()
 {
-
-//	int px = MAX_PAGES_X/2;
-//	int py = MAX_PAGES_Y/2;
-//	int pz = MAX_PAGES_Z/2;
-
-
-	po_coords_t poc = po_coords(campos_x, campos_y, campos_z, 0);
-
-/*
-	int px = poc.px;
-	int py = poc.py;
-	int pz = poc.pz;
-
-	printf("(%3d,%3d,%3d,rl%d)\n", px, py, pz, rl);
-
-
-	free_all_pieces();
-
-
-	if(find_piece_by_page_and_rl(px, py, pz, rl) == -1)
-		read_voxmap_to_meshes(px, py, pz, rl);
-	else
-	{
-		printf("KAKKA!\n");
-		abort();
-	}
-*/
+	int poc_px = manag_px;
+	int poc_py = manag_py;
+	int poc_pz = manag_pz;
+	int xbias = manag_xbias;
+	int ybias = manag_ybias;
+	int zbias = manag_zbias;
+	
+//	int xbias = 0;
+//	int ybias = 0;
+//	int zbias = 0;
 
 	static const int extra_x[MAX_RESOLEVELS] = {1, 2, 4, 8, 8, 8};
 	static const int extra_y[MAX_RESOLEVELS] = {1, 2, 4, 8, 8, 8};
 	static const int extra_z[MAX_RESOLEVELS] = {1, 2, 3, 8, 8, 8};
 
+
+	printf("bias %d  %d  %d\n", xbias, ybias, zbias);
 
 	int start_x[MAX_RESOLEVELS];
 	int end_x[MAX_RESOLEVELS];
@@ -1528,12 +1560,12 @@ int manage_mesh_ranges(double campos_x, double campos_y, double campos_z, double
 
 	for(int rl=0; rl<4; rl++)
 	{
-		start_x[rl] = poc.px-extra_x[rl];
-		end_x[rl] = poc.px+extra_x[rl];
-		start_y[rl] = poc.py-extra_y[rl];
-		end_y[rl] = poc.py+extra_y[rl];
-		start_z[rl] = poc.pz-extra_z[rl];
-		end_z[rl] = poc.pz+extra_z[rl];
+		start_x[rl] = poc_px-extra_x[rl]+xbias*rl;
+		end_x[rl] = poc_px+extra_x[rl]+xbias*rl;
+		start_y[rl] = poc_py-extra_y[rl]+ybias*rl;
+		end_y[rl] = poc_py+extra_y[rl]+ybias*rl;
+		start_z[rl] = poc_pz-extra_z[rl]+zbias*rl;
+		end_z[rl] = poc_pz+extra_z[rl]+zbias*rl;
 
 		if(start_x[rl] < 0) start_x[rl] = 0;
 		if(end_x[rl] > MAX_PAGES_X-1) end_x[rl] = MAX_PAGES_X-1;
@@ -1560,17 +1592,23 @@ int manage_mesh_ranges(double campos_x, double campos_y, double campos_z, double
 
 						// printf("LOAD   (%3d,%3d,%3d,rl%d)\n", px, py, pz, rl);
 
-						for(int lower_rl=rl+1; lower_rl<4; lower_rl++)
-							free_pieces_by_page_and_rl(px, py, pz, lower_rl);
-
 						if(find_piece_by_page_and_rl(px, py, pz, rl) == -1)
+						{
+							if(px==261&&py==252&&pz==15)  printf("LOAD   (%3d,%3d,%3d,rl%d)\n", px, py, pz, rl);
 							read_voxmap_to_meshes(px, py, pz, rl);
+						}
+
+						for(int lower_rl=rl+1; lower_rl<4; lower_rl++)
+						{
+							if(px==261&&py==252&&pz==15) printf("FREE1  (%3d,%3d,%3d,rl%d)\n", px, py, pz, lower_rl);
+							free_pieces_by_page_and_rl(px, py, pz, lower_rl);
+						}
 
 						break; // Don't load lower rls
 					}
 					else
 					{
-//						printf("LOAD   (%3d,%3d,%3d,rl%d)\n", px, py, pz, rl);
+						if(px==261&&py==252&&pz==15)  printf("FREE2  (%3d,%3d,%3d,rl%d)\n", px, py, pz, rl);
 
 						// This page shoudln't be loaded at this rl
 						free_pieces_by_page_and_rl(px, py, pz, rl);
@@ -1579,6 +1617,81 @@ int manage_mesh_ranges(double campos_x, double campos_y, double campos_z, double
 			}
 		}
 	}	
+}
+
+sf::Thread thread(&do_manage_mesh_ranges);
+
+int manage_mesh_ranges(double campos_x, double campos_y, double campos_z, double camera_yaw, double camera_pitch, int force)
+{
+
+//	int px = MAX_PAGES_X/2;
+//	int py = MAX_PAGES_Y/2;
+//	int pz = MAX_PAGES_Z/2;
+
+
+	po_coords_t poc = po_coords(campos_x, campos_y, campos_z, 0);
+
+	double x_bias = 1.5*cos(camera_yaw);
+	double y_bias = 1.5*sin(camera_yaw);
+	double z_bias = 1.5*sin(camera_pitch);
+
+//	printf("f bias  %.2f  %.2f  %.2f\n", x_bias, y_bias, z_bias);
+
+	int xb = (int)x_bias;
+	int yb = (int)y_bias;
+	int zb = (int)z_bias;
+
+	static int prev_px = -1, prev_py = -1, prev_pz = -1;
+	static int prev_xbias = -999, prev_ybias = -999, prev_zbias = -999;
+
+	if(!force && poc.px == prev_px && poc.py == prev_py && poc.pz == prev_pz && prev_xbias == xb && prev_ybias == yb && prev_zbias == zb)
+	{
+		return;
+	}
+
+	prev_px = poc.px;
+	prev_py = poc.py;
+	prev_pz = poc.pz;
+
+	prev_xbias = xb;
+	prev_ybias = yb;
+	prev_zbias = zb;
+
+	thread.wait();
+
+	manag_px = poc.px;
+	manag_py = poc.py;
+	manag_pz = poc.pz;
+
+
+	manag_xbias = xb;
+	manag_ybias = yb;
+	manag_zbias = zb;
+
+//	printf("manag_bias  %d  %d  %d\n", manag_xbias, manag_);
+
+	thread.launch();
+
+/*
+	int px = poc.px;
+	int py = poc.py;
+	int pz = poc.pz;
+
+	printf("(%3d,%3d,%3d,rl%d)\n", px, py, pz, rl);
+
+
+	free_all_pieces();
+
+
+	if(find_piece_by_page_and_rl(px, py, pz, rl) == -1)
+		read_voxmap_to_meshes(px, py, pz, rl);
+	else
+	{
+		printf("KAKKA!\n");
+		abort();
+	}
+*/
+
 
 	
 /*
@@ -1601,4 +1714,12 @@ int manage_mesh_ranges(double campos_x, double campos_y, double campos_z, double
 	return 0;
 
 }
+
+void wait_manage_mesh()
+{
+//	printf("wait...\n");
+	thread.wait();
+//	printf("...ok\n");
+}
+
 

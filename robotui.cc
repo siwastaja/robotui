@@ -2326,12 +2326,14 @@ int main(int argc, char** argv)
 			{
 				map_set_1();
 				reload_map();
+				reload_3d_map(campos_x, campos_y, campos_z, camera_yaw, camera_pitch);
 				f_pressed[5] = true;
 			}} else f_pressed[5] = false;
 			if(sf::Keyboard::isKeyPressed(sf::Keyboard::F6)) { if(!f_pressed[6]) 
 			{
 				map_set_2();
 				reload_map();
+				reload_3d_map(campos_x, campos_y, campos_z, camera_yaw, camera_pitch);
 
 /*
 				if(sf::Keyboard::isKeyPressed(sf::Keyboard::LShift) || sf::Keyboard::isKeyPressed(sf::Keyboard::RShift))
@@ -2489,19 +2491,22 @@ int main(int argc, char** argv)
 		{
 			if(view_3d)
 			{
-				manage_mesh_ranges(campos_x, campos_y, campos_z, camera_yaw, camera_pitch);
+				manage_mesh_ranges(campos_x, campos_y, campos_z, camera_yaw, camera_pitch, 0);
 			}
 			else
 			{
 				use_fullmap = manage_page_pile_ranges();
-				printf("use_fullmap=%d\n", use_fullmap);
+				//printf("use_fullmap=%d\n", use_fullmap);
 			}
 
 			manage = 0;
 		}
 
+		static bool prev_view_3d;
 		if(view_3d)
 		{
+			mutex_gl.lock();
+
 			win.popGLStates();
 			win.setActive(true);
 
@@ -2513,6 +2518,14 @@ int main(int argc, char** argv)
 		}
 		else
 		{
+			if(prev_view_3d)
+			{
+				wait_manage_mesh();
+			}
+
+			mutex_gl.lock();
+
+			win.clear(sf::Color(230,230,230));
 
 			if(use_fullmap)
 				draw_full_map(win);
@@ -2528,6 +2541,8 @@ int main(int argc, char** argv)
 			draw_route_mm(win, &some_route);
 			draw_drive_diag(win, &latest_drive_diag);
 		}
+
+		prev_view_3d = view_3d;
 
 
 		draw_bat_status(win);
@@ -2592,8 +2607,9 @@ int main(int argc, char** argv)
 
 		win.display();
 
+		mutex_gl.unlock();
+
 		animate();
-		win.clear(sf::Color(230,230,230));
 
 		usleep(100);
 
