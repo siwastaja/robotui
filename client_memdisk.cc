@@ -79,7 +79,7 @@ int view2d_max_z = 1900;
 static char mapdir[1024];
 
 //static int display_limit[4] = {1, 3, 6, 6};
-static int display_limit[4]   = {3, 5, 15, 15};
+static int display_limit[4]   = {3, 6, 15, 15};
 static void load_page_pile_from_disk(int px, int py, int rl, int do_reload)
 {
 	assert(px >= 0 && px < MAX_PAGES_X && py >= 0 && py < MAX_PAGES_Y && rl >= 0 && rl < 8);
@@ -801,56 +801,6 @@ mesh_t voxmap_to_mesh(voxmap_t* p_voxmap, int x_start, int x_end, int y_start, i
 //	printf("voxmap_to_mesh x %d..%d  y %d..%d  z %d..%d,  rl%d\n", x_start, x_end, y_start, y_end, z_start, z_end, rl);
 	static vertex_attrs_t attrs[MAX_VERTICES_PER_MESH];
 
-/*
-	float width=1.0*VOX_RELATIONS[rl]*2.0;
-	float height=1.0*VOX_RELATIONS[rl]*2.0;
-	float length=1.0*VOX_RELATIONS[rl]*2.0;
-
-	GLfloat vertices[] = {
-	-width/2, -height/2, length/2,
-	width/2, -height/2, length/2,
-	width/2, height/2, length/2,
-	-width/2, -height/2, length/2,
-	width/2, height/2, length/2,
-	-width/2, height/2, length/2,
-
-	-width/2, -height/2, -length/2,
-	-width/2, height/2, -length/2,
-	width/2, height/2, -length/2,
-	-width/2, -height/2, -length/2,
-	width/2, height/2, -length/2,
-	width/2, -height/2, -length/2,
-
-	-width/2, height/2, -length/2,
-	-width/2, height/2, length/2,
-	width/2, height/2, length/2,
-	-width/2, height/2, -length/2,
-	width/2, height/2, length/2,
-	width/2, height/2, -length/2,
-
-	-width/2, -height/2, -length/2,
-	width/2, -height/2, -length/2,
-	width/2, -height/2, length/2,
-	-width/2, -height/2, -length/2,
-	width/2, -height/2, length/2,
-	-width/2, -height/2, length/2,
-
-	width/2, -height/2, -length/2,
-	width/2, height/2, -length/2,
-	width/2, height/2, length/2,
-	width/2, -height/2, -length/2,
-	width/2, height/2, length/2,
-	width/2, -height/2, length/2,
-
-	-width/2, -height/2, -length/2,
-	-width/2, -height/2, length/2,
-	-width/2, height/2, length/2,
-	-width/2, -height/2, -length/2,
-	-width/2, height/2, length/2,
-	-width/2, height/2, -length/2
-	};
-*/
-
 	int facehalf=VOX_RELATIONS[rl];
 
 	int vertices[] = {
@@ -913,151 +863,6 @@ mesh_t voxmap_to_mesh(voxmap_t* p_voxmap, int x_start, int x_end, int y_start, i
 	-facehalf, -facehalf, -facehalf
 	};
 
-/*
-	int vertices[] = {
-	-facehalf, -facehalf, facehalf,
-	facehalf, -facehalf, facehalf,
-	facehalf, facehalf, facehalf,
-	-facehalf, -facehalf, facehalf,
-	facehalf, facehalf, facehalf,
-	-facehalf, facehalf, facehalf,
-
-	-facehalf, -facehalf, -facehalf,
-	-facehalf, facehalf, -facehalf,
-	facehalf, facehalf, -facehalf,
-	-facehalf, -facehalf, -facehalf,
-	facehalf, facehalf, -facehalf,
-	facehalf, -facehalf, -facehalf,
-
-	-facehalf, facehalf, -facehalf,
-	-facehalf, facehalf, facehalf,
-	facehalf, facehalf, facehalf,
-	-facehalf, facehalf, -facehalf,
-	facehalf, facehalf, facehalf,
-	facehalf, facehalf, -facehalf,
-
-	-facehalf, -facehalf, -facehalf,
-	facehalf, -facehalf, -facehalf,
-	facehalf, -facehalf, facehalf,
-	-facehalf, -facehalf, -facehalf,
-	facehalf, -facehalf, facehalf,
-	-facehalf, -facehalf, facehalf,
-
-	facehalf, -facehalf, -facehalf,
-	facehalf, facehalf, -facehalf,
-	facehalf, facehalf, facehalf,
-	facehalf, -facehalf, -facehalf,
-	facehalf, facehalf, facehalf,
-	facehalf, -facehalf, facehalf,
-
-	-facehalf, -facehalf, -facehalf,
-	-facehalf, -facehalf, facehalf,
-	-facehalf, facehalf, facehalf,
-	-facehalf, -facehalf, -facehalf,
-	-facehalf, facehalf, facehalf,
-	-facehalf, facehalf, -facehalf
-	};
-*/
-
-	const GLfloat normals[] = {
-	0.0f, 0.0f, 1.0f,
-	0.0f, 0.0f, 1.0f,
-	0.0f, 0.0f, 1.0f,
-	0.0f, 0.0f, 1.0f,
-	0.0f, 0.0f, 1.0f,
-	0.0f, 0.0f, 1.0f,
-
-	0.0f, 0.0f,-1.0f,
-	0.0f, 0.0f,-1.0f,
-	0.0f, 0.0f,-1.0f,
-	0.0f, 0.0f,-1.0f,
-	0.0f, 0.0f,-1.0f,
-	0.0f, 0.0f,-1.0f,
-
-	0.0f, 1.0f, 0.0f,
-	0.0f, 1.0f, 0.0f,
-	0.0f, 1.0f, 0.0f,
-	0.0f, 1.0f, 0.0f,
-	0.0f, 1.0f, 0.0f,
-	0.0f, 1.0f, 0.0f,
-
-	0.0f,-1.0f, 0.0f,
-	0.0f,-1.0f, 0.0f,
-	0.0f,-1.0f, 0.0f,
-	0.0f,-1.0f, 0.0f,
-	0.0f,-1.0f, 0.0f,
-	0.0f,-1.0f, 0.0f,
-
-	1.0f, 0.0f, 0.0f,
-	1.0f, 0.0f, 0.0f,
-	1.0f, 0.0f, 0.0f,
-	1.0f, 0.0f, 0.0f,
-	1.0f, 0.0f, 0.0f,
-	1.0f, 0.0f, 0.0f,
-
-	-1.0f, 0.0f, 0.0f,
-	-1.0f, 0.0f, 0.0f,
-	-1.0f, 0.0f, 0.0f,
-	-1.0f, 0.0f, 0.0f,
-	-1.0f, 0.0f, 0.0f,
-	-1.0f, 0.0f, 0.0f
-	};
-
-/*
-	const GLfloat vertices[] = {
-	-width/2, -height/2, length/2,
-	width/2, -height/2, length/2,
-	width/2, height/2, length/2,
-	-width/2, height/2, length/2,
-	-width/2, -height/2, -length/2,
-	-width/2, height/2, -length/2,
-	width/2, height/2, -length/2,
-	width/2, -height/2, -length/2,
-	-width/2, height/2, -length/2,
-	-width/2, height/2, length/2,
-	width/2, height/2, length/2,
-	width/2, height/2, -length/2,
-	-width/2, -height/2, -length/2,
-	width/2, -height/2, -length/2,
-	width/2, -height/2, length/2,
-	-width/2, -height/2, length/2,
-	width/2, -height/2, -length/2,
-	width/2, height/2, -length/2,
-	width/2, height/2, length/2,
-	width/2, -height/2, length/2,
-	-width/2, -height/2, -length/2,
-	-width/2, -height/2, length/2,
-	-width/2, height/2, length/2,
-	-width/2, height/2, -length/2
-	};
-
-	const GLfloat normals[] = {
-	0.0f, 0.0f, 1.0f,
-	0.0f, 0.0f, 1.0f,
-	0.0f, 0.0f, 1.0f,
-	0.0f, 0.0f, 1.0f,
-	0.0f, 0.0f,-1.0f,
-	0.0f, 0.0f,-1.0f,
-	0.0f, 0.0f,-1.0f,
-	0.0f, 0.0f,-1.0f,
-	0.0f, 1.0f, 0.0f,
-	0.0f, 1.0f, 0.0f,
-	0.0f, 1.0f, 0.0f,
-	0.0f, 1.0f, 0.0f,
-	0.0f,-1.0f, 0.0f,
-	0.0f,-1.0f, 0.0f,
-	0.0f,-1.0f, 0.0f,
-	0.0f,-1.0f, 0.0f,
-	1.0f, 0.0f, 0.0f,
-	1.0f, 0.0f, 0.0f,
-	1.0f, 0.0f, 0.0f,
-	1.0f, 0.0f, 0.0f,
-	-1.0f, 0.0f, 0.0f,
-	-1.0f, 0.0f, 0.0f,
-	-1.0f, 0.0f, 0.0f,
-	-1.0f, 0.0f, 0.0f
-	};
-*/
 
 	int v = 0;
 	for(int yy=y_start; yy<y_end; yy++)
@@ -1068,29 +873,19 @@ mesh_t voxmap_to_mesh(voxmap_t* p_voxmap, int x_start, int x_end, int y_start, i
 			{
 				if(TEST_VOXMAP(xx, yy, zz, rl))
 				{
-					/*
-						Faces:
-						0 = neg vox_y side
-						1 = pos vox_y side
-						2 = top
-						3 = bottom
-						4 = pos vox_x side
-						5 = neg vox_x side
-						
-					*/
 					int ignore_faces[6] = {0};
 
 					if(xx > 0 && TEST_VOXMAP(xx-1, yy, zz, rl))
-						ignore_faces[5] = 1;  //5
+						ignore_faces[5] = 1;
 
 					if(xx < VOX_XS[rl]-1 && TEST_VOXMAP(xx+1, yy, zz, rl))
-						ignore_faces[4] = 1;  //4
+						ignore_faces[4] = 1;
 
 					if(yy > 0 && TEST_VOXMAP(xx, yy-1, zz, rl))
-						ignore_faces[1] = 1;  //0
+						ignore_faces[1] = 1;
 
 					if(yy < VOX_YS[rl]-1 && TEST_VOXMAP(xx, yy+1, zz, rl))
-						ignore_faces[0] = 1;  //1
+						ignore_faces[0] = 1;
 
 					if(zz > 0 && TEST_VOXMAP(xx, yy, zz-1, rl))
 						ignore_faces[3] = 1;
@@ -1253,16 +1048,11 @@ mesh_t voxmap_to_mesh(voxmap_t* p_voxmap, int x_start, int x_end, int y_start, i
 
 	// vertex positions, layout 0
 	glEnableVertexAttribArray(0);	
-//	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(vertex_attrs_t), (void*)offsetof(vertex_attrs_t, position));
 	glVertexAttribPointer(0, 4, GL_UNSIGNED_INT_2_10_10_10_REV, GL_FALSE, sizeof(vertex_attrs_t), (void*)offsetof(vertex_attrs_t, position));
 
 	// colors, layout 1
 	glEnableVertexAttribArray(1);
 	glVertexAttribPointer(1, 4, GL_UNSIGNED_BYTE, GL_TRUE, sizeof(vertex_attrs_t), (void*)offsetof(vertex_attrs_t, color));
-
-	// vertex normals
-//	glEnableVertexAttribArray(1);	
-//	glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, sizeof(vertex_attrs_t), (void*)offsetof(vertex_attrs_t, normal));
 
 	glBindVertexArray(0);
 
@@ -1281,14 +1071,11 @@ static void render_piece(piece_3d_t* p)
 		return;
 
 
-
+	// No need to rotate the models, only translate
 
 	glm::mat4 model = glm::mat4(1.0f);
-//	model = glm::translate(model, glm::vec3(p->x_start+p->xs/2, p->z_start+p->zs/2, (-1*(p->y_start+p->ys/2))+p->ys));	
-//	model = glm::translate(model, glm::vec3(p->x_start, p->z_start, -1*(p->y_start+p->ys)));	
 	model = glm::translate(model, glm::vec3(p->x_start, p->z_start, p->y_start));
 	glm::mat4 pvm = projection * view * model;
-
 
 
 //	printf("point_transformed: %s\n", glm::to_string(point_transformed).c_str());
@@ -1307,8 +1094,6 @@ static void render_piece(piece_3d_t* p)
 
 	for(int i = 0; i < 8; i++)
 	{
-//		glm::vec4 point = glm::vec4(p->x_start+p->xs/2, p->z_start+p->zs/2, -1*(p->y_start+p->ys/2), 1.0f);
-//		glm::vec4 point = glm::vec4(edges[i*3+0], edges[i*3+2], (-1.0*edges[i*3+1])+2*p->ys, 1.0f);
 		glm::vec4 point = glm::vec4(edges[i*3+0], edges[i*3+2], edges[i*3+1], 1.0f);
 
 		glm::vec4 point_transformed = (projection * view) * point;
@@ -1323,29 +1108,14 @@ static void render_piece(piece_3d_t* p)
 	if(n_outside == 8)
 		return;
 
-//	mutex_gl.lock();
-
-//	p_win->setActive(true);
-
 	glBindVertexArray(p->mesh.vao);
 
-	// No need to rotate the models, only translate
-
-//	printf("render_piece vertices=%d\n", p->mesh.n_triangles*3);
 
 	// Pieces are large, and there are few of them (several hundreds).
 	// Don't calculate projection*view*model on GPU for every vertex.
-//	printf("P %s\n", glm::to_string(projection).c_str());
-//	printf("V %s\n", glm::to_string(view).c_str());
-//	printf("M %s\n", glm::to_string(model).c_str());
-//	printf("PVM %s\n", glm::to_string(pvm).c_str());
 
 	glUniformMatrix4fv(pvm_loc, 1, GL_FALSE, glm::value_ptr(pvm));
 	glDrawArrays(GL_TRIANGLES, 0, p->mesh.n_triangles*3);
-
-//	p_win->setActive(false);
-
-//	mutex_gl.unlock();
 }
 
 
@@ -1448,7 +1218,7 @@ static void free_all_pieces()
 void reload_3d_map(double campos_x, double campos_y, double campos_z, double camera_yaw, double camera_pitch)
 {
 	free_all_pieces();
-	manage_mesh_ranges(campos_x, campos_y, campos_z, camera_yaw, camera_pitch, 1);
+//	manage_mesh_ranges(campos_x, campos_y, campos_z, camera_yaw, camera_pitch, 1);
 }
 
 void read_voxmap_to_meshes(int px, int py, int pz, int rl)
