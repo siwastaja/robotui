@@ -100,7 +100,7 @@ static void load_page_pile_from_disk(int px, int py, int rl, int do_reload)
 	{
 		voxmap_t voxmap;
 		static char fnamebuf[2048];
-		int ret = read_uncompressed_voxmap(&voxmap, gen_fname(mapdir, px, py, pz, rl, fnamebuf));
+		int ret = read_voxmap(&voxmap, gen_fname(mapdir, px, py, pz, rl, fnamebuf));
 
 		if(ret >= 0)
 		{
@@ -336,6 +336,12 @@ void draw_page_piles(sf::RenderWindow& win)
 		for(int px=poc_s.px; px<=poc_e.px; px++)
 //		for(int px=256-16; px<=256+16; px++)
 		{
+			if(py<0 || py >= MAX_PAGES_Y || px<0 || px > MAX_PAGES_X)
+			{
+				//printf("WARN: OOR px=%d, py=%d (draw_page_piles)\n", px, py);
+				continue;
+			}
+
 			// Draw the highest resolution loaded:
 			for(int rl=0; rl<4; rl++)
 			{
@@ -458,6 +464,8 @@ int manage_page_pile_ranges()
 	// Use a hysteresis band: don't free pages as easily as we load them.
 	static const int n_load_allowed[MAX_RESOLEVELS]  = {4*4, 16*16, 64*64, 128*128};
 	static const int n_free_required[MAX_RESOLEVELS] = {7*7, 20*20, 80*80, 160*160};
+//	static const int n_load_allowed[MAX_RESOLEVELS]  = {100*100, 100*100, 100*100, 128*128};
+//	static const int n_free_required[MAX_RESOLEVELS] = {80*80, 80*80, 80*80, 160*160};
 
 	#define NEAR_EXTRA 1
 	#define FAR_EXTRA 4
@@ -1225,7 +1233,7 @@ void read_voxmap_to_meshes(int px, int py, int pz, int rl)
 {
 	voxmap_t voxmap;
 	static char fnamebuf[2048];
-	int ret = read_uncompressed_voxmap(&voxmap, gen_fname(mapdir, px, py, pz, rl, fnamebuf));
+	int ret = read_voxmap(&voxmap, gen_fname(mapdir, px, py, pz, rl, fnamebuf));
 
 	if(ret >= 0)
 	{
@@ -1364,13 +1372,13 @@ static int do_manage_mesh_ranges()
 
 						if(find_piece_by_page_and_rl(px, py, pz, rl) == -1)
 						{
-							if(px==261&&py==252&&pz==15)  printf("LOAD   (%3d,%3d,%3d,rl%d)\n", px, py, pz, rl);
+							//if(px==261&&py==252&&pz==15)  printf("LOAD   (%3d,%3d,%3d,rl%d)\n", px, py, pz, rl);
 							read_voxmap_to_meshes(px, py, pz, rl);
 						}
 
 						for(int lower_rl=rl+1; lower_rl<4; lower_rl++)
 						{
-							if(px==261&&py==252&&pz==15) printf("FREE1  (%3d,%3d,%3d,rl%d)\n", px, py, pz, lower_rl);
+							//if(px==261&&py==252&&pz==15) printf("FREE1  (%3d,%3d,%3d,rl%d)\n", px, py, pz, lower_rl);
 							free_pieces_by_page_and_rl(px, py, pz, lower_rl);
 						}
 
@@ -1378,7 +1386,7 @@ static int do_manage_mesh_ranges()
 					}
 					else
 					{
-						if(px==261&&py==252&&pz==15)  printf("FREE2  (%3d,%3d,%3d,rl%d)\n", px, py, pz, rl);
+						//if(px==261&&py==252&&pz==15)  printf("FREE2  (%3d,%3d,%3d,rl%d)\n", px, py, pz, rl);
 
 						// This page shoudln't be loaded at this rl
 						free_pieces_by_page_and_rl(px, py, pz, rl);

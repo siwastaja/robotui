@@ -1,7 +1,7 @@
 CC = g++
 LD = g++
 
-CXXFLAGS = -fpermissive -Wall -Winline -D_GLIBCXX_USE_CXX11_ABI=0 -Wno-narrowing -Wno-write-strings -O1 -g
+CXXFLAGS = -fpermissive -Wall -Winline -D_GLIBCXX_USE_CXX11_ABI=0 -Wno-narrowing -Wno-write-strings -O2 -g
 LDFLAGS = -D_GLIBCXX_USE_CXX11_ABI=0
 #-std=c++98
 
@@ -19,7 +19,7 @@ all: robotui
 	@rm -f $*.d.tmp
 
 robotui: $(ROBOTUI_OBJ)
-	$(LD) $(LDFLAGS) -o robotui $^ ../robotsoft/voxmap.o ../robotsoft/voxmap_memdisk.o -lm -lsfml-network -lsfml-graphics -lsfml-window -lsfml-system -lGL -lGLEW
+	$(LD) $(LDFLAGS) -o robotui $^ ../robotsoft/voxmap.o ../robotsoft/voxmap_memdisk.o -lm -lsfml-network -lsfml-graphics -lsfml-window -lsfml-system -lGL -lGLEW -lz
 # -lraylib
 
 e:
