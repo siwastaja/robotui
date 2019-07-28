@@ -10,4 +10,5 @@ void main()
 {
 	gl_Position = pvm * vec4(vertex_position.x, vertex_position.y, vertex_position.z, 1.0);
 	frag_color = vertex_color;
+	gl_PointSize = 800.0 / gl_Position.z;
 }

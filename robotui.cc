@@ -66,6 +66,7 @@
 #define I32TOBUF(i_, b_, s_) {(b_)[(s_)] = ((i_)>>24)&0xff; (b_)[(s_)+1] = ((i_)>>16)&0xff; (b_)[(s_)+2] = ((i_)>>8)&0xff; (b_)[(s_)+3] = ((i_)>>0)&0xff; }
 #define I16TOBUF(i_, b_, s_) {(b_)[(s_)] = ((i_)>>8)&0xff; (b_)[(s_)+1] = ((i_)>>0)&0xff; }
 
+bool view_3d = false;
 
 
 char status_text[2000];
@@ -469,9 +470,9 @@ tof_raw_ambient8_t latest_tof_ambients[N_TOF_SENSORS];
 #define DATA_OVEREXP 65535
 
 float red_dist  = 0.0;
-float blue_dist = 10000.0;
-//float red_dist  = 400.0;
-//float blue_dist = 500.0;
+float blue_dist = 15000.0;
+//float red_dist  = 1600.0;
+//float blue_dist = 2200.0;
 
 int tof_raw_alpha = 255; //80;
 
@@ -769,9 +770,11 @@ void draw_tof_ampl_together(sf::RenderWindow& win, uint8_t* img, int x_on_screen
 
 bool draw_ambients = false;
 
+float tof_raw_scale = 0.0;
+
 void draw_tof_raws(sf::RenderWindow& win)
 {
-	float scale = 1.0;
+	float scale = tof_raw_scale;
 
 	static const int order[10] = { 5,4,3,2,1,0,9,8,7,6};
 
@@ -837,13 +840,15 @@ void draw_tof_raws(sf::RenderWindow& win)
 				20+ii*(scale*60.0+4), 20+scale*TOF_XS_NARROW+(TOF_XS+TOF_XS_NARROW)*scale+6, scale, mir_x, mir_y, rotated);
 		
 
+			float textscale = scale;
+			if(textscale > 1.2) textscale = 1.2;
 			sf::Text te;
 			char tbuf[32];
 			sprintf(tbuf, "%u (%u%%)", latest_tof_dists[i].narrow_stray_estimate_adc, (100*latest_tof_dists[i].narrow_stray_estimate_adc+1)/16384);
 			te.setFont(arial);
 			te.setFillColor(sf::Color(255,255,255,tof_raw_alpha));
 			te.setString(tbuf);
-			te.setCharacterSize(10);
+			te.setCharacterSize(textscale*10);
 			te.setPosition(20+scale*((TOF_YS-TOF_YS_NARROW)/2.0) +ii*(scale*60.0+4), 20);
 			win.draw(te);
 
@@ -854,7 +859,7 @@ void draw_tof_raws(sf::RenderWindow& win)
 
 			sprintf(tbuf, "TOF%u", i);
 			te.setString(tbuf);
-			te.setCharacterSize(14);
+			te.setCharacterSize(textscale*14);
 			te.setFillColor(sf::Color(0,0,0,tof_raw_alpha));
 			te.setPosition(20 + scale*20.0 +ii*(scale*60.0+4), 20-17);
 			win.draw(te);
@@ -1241,6 +1246,8 @@ void print_tof_slam_set(void* m)
 	latest_tof_dists[idx].sensor_orientation = mm->sensor_orientation;
 
 	int set = 0;
+
+	// Wanna show long wide set?
 	if(mm->flags & TOF_SLAM_SET_FLAG_SET1_WIDE)
 		set = 1;	
 
@@ -1431,17 +1438,19 @@ void print_(void* m)
 
 int parse_message(uint16_t id, uint32_t len)
 {
+	// Handle RobotBoard2-originated firmware messages with their API-defined function pointers:
 	if(id < 256)
 	{
 		if(b2s_msgs[id].p_print)
 			b2s_msgs[id].p_print(rxbuf);
+
+		return 0;
 	}
+
+	// Handle robotsoft-originated messages:
 
 	switch(id)
 	{
-		
-
-
 		case 435: // Route info
 		{
 			clear_route(&some_route);
@@ -1598,9 +1607,15 @@ int parse_message(uint16_t id, uint32_t len)
 		}
 		break;
 
+		case 447:
+		{
+			process_realtime_pointcloud(rxbuf, len, view_3d);
+		}
+		break;
+
 		default:
 		{
-			//printf("Note: unhandled message type, msgid=%u, paylen=%u\n", id, len);
+			printf("Note: unhandled message type, msgid=%u, paylen=%u\n", id, len);
 		}
 		break;
 	}
@@ -1637,6 +1652,7 @@ typedef struct
 #define MENU_ITEM_XS 180
 #define MENU_ITEM_YS 45
 #define MENU_ITEM_YGAP 55
+
 popup_menu_t popup_menu =
 {
 	0,
@@ -1646,8 +1662,9 @@ popup_menu_t popup_menu =
 	0,
 	10,
 	10,
-	5,
+	6,
 	{
+#define MENU_EXPLORE_3D 0
 		{
 			1,
 			0, 0*MENU_ITEM_YGAP,
@@ -1656,6 +1673,7 @@ popup_menu_t popup_menu =
 			sf::Color(180,180,180,255),
 			"Explore 3D"
 		},
+#define MENU_ROUTE_HERE 1
 		{
 			1,
 			0, 1*MENU_ITEM_YGAP,
@@ -1664,6 +1682,7 @@ popup_menu_t popup_menu =
 			sf::Color(210,160,160,255),
 			"Route here"
 		},
+#define MENU_TURN_HERE 2
 		{
 			1,
 			0, 2*MENU_ITEM_YGAP,
@@ -1672,6 +1691,7 @@ popup_menu_t popup_menu =
 			sf::Color(160,210,160,255),
 			"Turn here"
 		},
+#define MENU_FORWARD 3
 		{
 			1,
 			0, 3*MENU_ITEM_YGAP,
@@ -1680,6 +1700,7 @@ popup_menu_t popup_menu =
 			sf::Color(160,160,210,255),
 			"Forward"
 		},
+#define MENU_BACKWARD 4
 		{
 			1,
 			MENU_ITEM_XS/2+8, 3*MENU_ITEM_YGAP,
@@ -1687,6 +1708,15 @@ popup_menu_t popup_menu =
 			16,
 			sf::Color(160,160,210,255),
 			"Backward"
+		},
+#define MENU_CLOSE_MENU 5
+		{
+			1,
+			0, 4*MENU_ITEM_YGAP,
+			MENU_ITEM_XS, MENU_ITEM_YS,
+			16,
+			sf::Color(160,210,160,255),
+			"Close menu"
 		}
 
 		
@@ -1811,7 +1841,6 @@ float campos_z = 0.0;
 double camera_yaw = 0.0;
 double camera_pitch = 0.0;
 
-bool view_3d = false;
 bool animate_jump_in = false;
 int animate_frame = 0;
 
@@ -2230,16 +2259,59 @@ int main(int argc, char** argv)
 					if(is_popup_enabled(&popup_menu))
 					{
 						int but = test_popup_click(&popup_menu, click_x, click_y);
-						printf("Pressed %d\n", but);
+
+						double point_x_mm = ((double)popup_menu.point_x * mm_per_pixel) - origin_x;
+						double point_y_mm = (-1*(double)popup_menu.point_y * mm_per_pixel) + origin_y;
+
+						//printf("Pressed %d\n", but);
+
+						int back = 0;
+						switch(but)
+						{
+							case MENU_EXPLORE_3D:
+							{
+								if(!view_3d)
+								{
+									jump_in(((double)popup_menu.point_x*mm_per_pixel) - origin_x,
+										((double)(-1*popup_menu.point_y) * mm_per_pixel) + origin_y);
+								}
+								else
+									view_3d = false;
+							} break;
+
+							case MENU_BACKWARD:
+							back = 1;
+							case MENU_FORWARD: 
+							{
+								clear_route(&some_route);
+								sprintf(status_text, "Status bar");
+		
+								dest_x = point_x_mm; dest_y = point_y_mm;
+
+								int x = dest_x; int y = dest_y;
+
+								uint8_t test[9] = {(x>>24)&0xff,(x>>16)&0xff,(x>>8)&0xff,(x>>0)&0xff,
+									(y>>24)&0xff, (y>>16)&0xff, (y>>8)&0xff, (y>>0)&0xff, back};
+
+								if(send(355, 9, test))
+								{
+									printf("Send error\n");
+									sprintf(status_text, "Send error, connection lost?");
+								}
+								else
+								{
+									sprintf(status_text, "Sent command: move directly");
+								}
+
+							} break;
+
+							default: break;
+
+						}
+
 						click_on = false;
 						ignore_click = true;
 
-
-						if(but == 0)
-						{
-							jump_in(((double)popup_menu.point_x*mm_per_pixel) - origin_x,
-								((double)(-1*popup_menu.point_y) * mm_per_pixel) + origin_y);
-						}
 					}
 					else
 					{
@@ -2299,6 +2371,25 @@ int main(int argc, char** argv)
 
 				}
 			}
+
+			static bool t_pressed;
+			if(sf::Keyboard::isKeyPressed(sf::Keyboard::T))
+			{
+				if(!t_pressed)
+				{
+					if(tof_raw_scale < 0.4)
+						tof_raw_scale = 0.5;
+					else if(tof_raw_scale > 0.4 && tof_raw_scale < 0.6)
+						tof_raw_scale = 1.0;
+					else if(tof_raw_scale > 0.9 && tof_raw_scale < 1.1)
+						tof_raw_scale = 2.0;
+					else if(tof_raw_scale > 1.9)
+						tof_raw_scale = 0.0;
+					t_pressed = true;
+				}
+			}
+			else t_pressed = false;
+
 
 			if(sf::Keyboard::isKeyPressed(sf::Keyboard::PageUp))
 			{
@@ -2533,7 +2624,9 @@ int main(int argc, char** argv)
 				draw_page_piles(win);
 
 
-			draw_voxmap(win);
+			//draw_voxmap(win);
+			draw_realtime_pc_2d(win);
+
 
 			draw_robot(win);
 

@@ -428,7 +428,7 @@ static void load_page_pile_range_from_disk(int sx, int ex, int sy, int ey, int r
 
 static void free_resolevel_completely(int rl)
 {
-	printf("free_resolevel_completely(%d)\n", rl);
+	//printf("free_resolevel_completely(%d)\n", rl);
 	for(int py=0; py < MAX_PAGES_Y; py++)
 	{
 		for(int px=0; px < MAX_PAGES_X; px++)
@@ -478,7 +478,7 @@ int manage_page_pile_ranges()
 
 	int completely_free[MAX_RESOLEVELS] = {1, 1, 1, 1};
 
-	printf("n_near=%d, n_far=%d\n", n_near, n_far);
+	//printf("n_near=%d, n_far=%d\n", n_near, n_far);
 
 	int n_rls_loaded = 0;
 	for(int rl=0; rl<4; rl++)
@@ -523,7 +523,7 @@ int manage_page_pile_ranges()
 			}
 		}
 	}
-	printf("manage: n_loaded per rl: %4d  %4d  %4d  %4d\n", n_loaded[0],n_loaded[1],n_loaded[2],n_loaded[3]);
+	//printf("manage: n_loaded per rl: %4d  %4d  %4d  %4d\n", n_loaded[0],n_loaded[1],n_loaded[2],n_loaded[3]);
 
 	return use_fullmap>=4;
 }
@@ -664,6 +664,13 @@ typedef struct __attribute__((packed))
 } vertex_attrs_t;
 
 
+typedef struct __attribute__((packed))
+{
+	vec3_t position;
+	uint32_t color;
+} point_attrs_t;
+
+
 typedef struct
 {
 	uint32_t vao;
@@ -777,6 +784,10 @@ void init_opengl(sf::RenderWindow& win)
 	glEnable(GL_DEPTH_TEST);
 	glDepthMask(GL_TRUE);
 	glClearDepth(1.0);
+
+
+	glEnable(GL_PROGRAM_POINT_SIZE);
+	glPointSize(4.0);
 
 	sf::Shader::bind(&shader);
 	int shader_id = shader.getNativeHandle();
@@ -1071,6 +1082,12 @@ mesh_t voxmap_to_mesh(voxmap_t* p_voxmap, int x_start, int x_end, int y_start, i
 	return ret;
 }
 
+
+
+
+
+
+
 #include <glm/gtx/string_cast.hpp>
 
 static void render_piece(piece_3d_t* p)
@@ -1126,6 +1143,308 @@ static void render_piece(piece_3d_t* p)
 	glDrawArrays(GL_TRIANGLES, 0, p->mesh.n_triangles*3);
 }
 
+#include "../robotsoft/small_cloud.h"
+#include "../robotsoft/slam_cloud.h" // for properly dimensioned realtime_cloud_t
+#include <zlib.h>
+
+typedef struct
+{
+	// Reference coordinates in 3D World coordinates.
+	int ref_x;
+	int ref_y;
+	int ref_z;
+
+	uint32_t vao;
+	uint32_t vbo;
+	uint32_t n_points;
+} pc_t;
+
+int realtime_pc_enabled = 0;
+static pc_t realtime_pc;
+
+pc_t generate_pc(realtime_cloud_t* rt_cloud, int ref_x, int ref_y, int ref_z)
+{
+	pc_t ret = {0};
+
+	ret.ref_x = ref_x / (VOX_UNITS[0]/2);
+	ret.ref_y = ref_y / (VOX_UNITS[0]/2);
+	ret.ref_z = ref_z / (VOX_UNITS[0]/2);
+
+	static point_attrs_t attrs[MAX_REALTIME_N_POINTS];
+
+	int v = 0;
+	for(int pi=0; pi<rt_cloud->n_points; pi++)
+	{
+		tmp_point_t p = get_small_cloud_point(rt_cloud->points[pi]);
+
+		int r, g, b, a;
+		int range = view2d_max_z - view2d_min_z;
+		int out_z = p.z;
+		r = (2*COLMAX*(out_z-view2d_min_z))/(range)-COLMAX;
+		if(r < 0) r = 0; else if(r > COLMAX) r = COLMAX;
+		b = (2*COLMAX*(view2d_max_z-out_z))/(range)-COLMAX;
+		if(b < 0) b = 0; else if(b > COLMAX) b = COLMAX;
+		g =  COLMAX - r - b;
+		if(g < 0) g = 0; else if(g > COLMAX) g = COLMAX;
+		int ysq = 2000/(50+abs(r-g));
+		r += ysq;
+		g += ysq;
+		r += b/3;
+		g += b/3;
+		r += 25;
+		g += 25;
+		b += 25;
+		if(r < 0) r = 0; else if(r > 255) r = 255;
+		if(g < 0) g = 0; else if(g > 255) g = 255;
+		a = 255;
+
+		if(GET_SMALL_CLOUD_FLAG(rt_cloud->points[pi]))
+		{
+			int rt = r, gt = g, bt = b;
+			r = (2*rt + gt + bt)/4;
+			g = (2*gt + rt + bt)/4;
+			b = (2*bt + rt + gt)/4;
+		}
+
+		// Convert millimeters to 3D world coordinate units:
+		attrs[v].position.x = p.x / (VOX_UNITS[0]/2);
+		attrs[v].position.y = p.z / (VOX_UNITS[0]/2);
+		attrs[v].position.z = p.y / (VOX_UNITS[0]/2);
+		attrs[v].color = RGBA32(r, g, b, a);
+
+		v++;
+
+	}
+
+	int32_t mem = (v*sizeof(point_attrs_t));
+	printf("pc generation done. point count=%d Total memory: %d bytes\n", v, mem);
+
+	ret.n_points = v;
+
+	mutex_gl.lock();
+	p_win->setActive(true);
+
+	glGenVertexArrays(1, &ret.vao);
+	glGenBuffers(1, &ret.vbo);
+
+	glBindVertexArray(ret.vao);
+
+	glBindBuffer(GL_ARRAY_BUFFER, ret.vbo);
+
+	glBufferData(GL_ARRAY_BUFFER, v*sizeof(point_attrs_t), attrs, GL_STATIC_DRAW);  
+
+	// vertex positions, layout 0
+	glEnableVertexAttribArray(0);	
+	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(point_attrs_t), (void*)offsetof(point_attrs_t, position));
+
+	// colors, layout 1
+	glEnableVertexAttribArray(1);
+	glVertexAttribPointer(1, 4, GL_UNSIGNED_BYTE, GL_TRUE, sizeof(point_attrs_t), (void*)offsetof(point_attrs_t, color));
+
+	glBindVertexArray(0);
+
+	p_win->setActive(false);
+
+	mutex_gl.unlock();
+
+	return ret;
+}
+
+#define PC2D_SIZE 1024
+#define PC2D_LOWER_CUTOFF -500
+#define PC2D_UPPER_CUTOFF 2000
+typedef struct
+{
+	int ref_x;
+	int ref_y;
+	int ref_z;
+	sf::Texture* texture;
+} pc_2d_t;
+
+static pc_2d_t realtime_pc_2d;
+
+int generate_pc_2d(pc_2d_t* pc_2d, realtime_cloud_t* rt_cloud, int ref_x, int ref_y, int ref_z)
+{
+	pc_2d->ref_x = ref_x;
+	pc_2d->ref_y = ref_y;
+	pc_2d->ref_z = ref_z;
+
+	if(pc_2d->texture == NULL)
+	{
+		// Texture init needed
+		pc_2d->texture = new sf::Texture;
+		pc_2d->texture->create(PC2D_SIZE, PC2D_SIZE);
+		pc_2d->texture->setSmooth(false);
+	}
+
+	// calloc gives zeroes, so alpha is zero as well (transparent)
+	uint32_t* pixels = calloc(PC2D_SIZE*PC2D_SIZE, sizeof(uint32_t));
+
+	uint8_t* zmap = calloc(PC2D_SIZE*PC2D_SIZE, sizeof(int8_t)); // Highest reading relative to ref_z, but not exceeding magical ceiling cutoff. Resolution 32mm. Offset of min_z.
+
+	int i = 0;
+	for(int pi=0; pi<rt_cloud->n_points; pi++)
+	{
+		tmp_point_t p = get_small_cloud_point(rt_cloud->points[pi]);
+
+		p.y *= -1; // screen axis swapped
+
+		if(p.z > view2d_max_z || p.z < view2d_min_z)
+			continue;
+
+		// Convert millimeters to second highest resolevel VOX units:
+		int x = p.x / (VOX_UNITS[1]) + PC2D_SIZE/2;
+		int y = p.y / (VOX_UNITS[1]) + PC2D_SIZE/2;
+
+		if(x < 0 || y < 0 || x >= PC2D_SIZE || y >= PC2D_SIZE)
+			continue;
+
+		uint8_t cmp_z = (p.z-view2d_min_z)/32;
+		if(cmp_z > zmap[y*PC2D_SIZE+x])
+		{
+			zmap[y*PC2D_SIZE+x] = cmp_z;
+
+			int r, g, b, a;
+			int range = view2d_max_z - view2d_min_z;
+			int out_z = p.z;
+			r = (2*COLMAX*(out_z-view2d_min_z))/(range)-COLMAX;
+			if(r < 0) r = 0; else if(r > COLMAX) r = COLMAX;
+			b = (2*COLMAX*(view2d_max_z-out_z))/(range)-COLMAX;
+			if(b < 0) b = 0; else if(b > COLMAX) b = COLMAX;
+			g =  COLMAX - r - b;
+			if(g < 0) g = 0; else if(g > COLMAX) g = COLMAX;
+			int ysq = 2000/(50+abs(r-g));
+			r += ysq;
+			g += ysq;
+			r += b/3;
+			g += b/3;
+			r += 25;
+			g += 25;
+			b += 25;
+			if(r < 0) r = 0; else if(r > 255) r = 255;
+			if(g < 0) g = 0; else if(g > 255) g = 255;
+			a = 255;
+
+			uint32_t color = RGBA32(r, g, b, a);
+			pixels[y*PC2D_SIZE+x] = color;
+			i++;
+		}
+	}
+
+//	printf("Generated %d pixels\n", i);
+
+	pc_2d->texture->update((uint8_t*)pixels);
+	free(pixels);
+	free(zmap);
+	return 0;
+}
+
+void draw_pc_2d(sf::RenderWindow& win, pc_2d_t* pc_2d)
+{
+	if(!pc_2d || !pc_2d->texture)
+		return;
+
+	sf::Sprite sprite;
+
+	float scale = (float)(VOX_UNITS[1])/mm_per_pixel;
+	sprite.setOrigin(PC2D_SIZE/2, PC2D_SIZE/2);
+	sprite.setTexture(*pc_2d->texture);
+	sprite.setPosition((origin_x+pc_2d->ref_x)/mm_per_pixel, (origin_y-pc_2d->ref_y)/mm_per_pixel);
+//	sprite.setPosition(500, 500);
+	sprite.setScale(sf::Vector2f(scale, scale));
+	win.draw(sprite);
+
+//	printf("drawing sprite\n");
+}
+
+void draw_realtime_pc_2d(sf::RenderWindow& win)
+{
+	draw_pc_2d(win, &realtime_pc_2d);
+}
+
+static void render_pc(pc_t* p)
+{
+	if(p->n_points < 1)
+		return;
+
+	// No need to rotate the models, only translate
+
+	glm::mat4 model = glm::mat4(1.0f);
+	model = glm::translate(model, glm::vec3(p->ref_x, p->ref_z, p->ref_y));
+	glm::mat4 pvm = projection * view * model;
+
+	glBindVertexArray(p->vao);
+
+	glUniformMatrix4fv(pvm_loc, 1, GL_FALSE, glm::value_ptr(pvm));
+	glDrawArrays(GL_POINTS, 0, p->n_points);
+}
+
+void process_realtime_pointcloud(uint8_t* buf, int buflen, bool view_3d)
+{
+	small_cloud_header_t* p_head = (small_cloud_header_t*)buf;
+	uint8_t* p_data = buf + sizeof(small_cloud_header_t);
+
+	static realtime_cloud_t rt_cloud;
+
+	assert(p_head->magic == 0xaa14);
+	assert(p_head->compression == 1);
+	assert(p_head->n_points <= MAX_REALTIME_N_POINTS);
+
+	rt_cloud.n_points = p_head->n_points;
+
+	z_stream strm;
+	strm.zalloc = Z_NULL;
+	strm.zfree = Z_NULL;
+	strm.opaque = Z_NULL;
+	strm.avail_in = buflen - sizeof(small_cloud_header_t);
+	strm.next_in = p_data;
+
+	if(inflateInit(&strm) != Z_OK)
+	{
+		printf("ERROR: ZLIB initialization failed\n");
+		abort();
+	}
+
+	int ret = 0;
+
+	strm.avail_out = sizeof(rt_cloud);
+	strm.next_out = (uint8_t*)(rt_cloud.points);
+
+	ret = inflate(&strm, Z_FINISH);
+	assert(ret != Z_STREAM_ERROR);
+
+	switch(ret)
+	{
+		case Z_NEED_DICT:
+		case Z_DATA_ERROR:
+		case Z_MEM_ERROR:
+		{
+			printf("ERROR: realtime cloud decompression error, inflate() returned %d\n", ret);
+			abort();
+		}
+		default: break;
+	}
+
+	assert(strm.avail_in == 0);
+
+	inflateEnd(&strm);
+
+
+	//printf("draw_realtime_pointcloud: ref(%d, %d, %d), n=%d, decompression OK\n", 
+	//	p_head->ref_x_mm,  p_head->ref_y_mm, p_head->ref_z_mm, p_head->n_points);
+
+	if(view_3d)
+	{
+		realtime_pc = generate_pc(&rt_cloud, p_head->ref_x_mm, p_head->ref_y_mm, p_head->ref_z_mm);
+		realtime_pc_enabled = 1;
+	}
+	else
+	{
+		generate_pc_2d(&realtime_pc_2d, &rt_cloud, p_head->ref_x_mm, p_head->ref_y_mm, p_head->ref_z_mm);
+	}
+}
+
+
 
 void render_3d(double campos_x, double campos_y, double campos_z, double camera_yaw, double camera_pitch)
 {
@@ -1161,6 +1480,11 @@ void render_3d(double campos_x, double campos_y, double campos_z, double camera_
 		{
 			render_piece(&pieces_3d[i]);
 		}
+	}
+
+	if(realtime_pc_enabled)
+	{
+		render_pc(&realtime_pc);
 	}
 
 	glBindVertexArray(0); // Unbind the VAO only once, no need to do it for every object

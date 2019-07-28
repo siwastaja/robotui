@@ -19,8 +19,7 @@ all: robotui
 	@rm -f $*.d.tmp
 
 robotui: $(ROBOTUI_OBJ)
-	$(LD) $(LDFLAGS) -o robotui $^ ../robotsoft/voxmap.o ../robotsoft/voxmap_memdisk.o -lm -lsfml-network -lsfml-graphics -lsfml-window -lsfml-system -lGL -lGLEW -lz
-# -lraylib
+	$(LD) $(LDFLAGS) -o robotui $^ voxmap.o voxmap_memdisk.o -lm -lsfml-network -lsfml-graphics -lsfml-window -lsfml-system -lGL -lGLEW -lz
 
 e:
 	gedit --new-window makefile `echo "$(ROBOTUI_OBJ)" | sed s/"\.o"/"\.cc"/g` `echo "$(ROBOTUI_OBJ)" | sed s/"\.o"/"\.h"/g` vertex_shader.glsl fragment_shader.glsl &
