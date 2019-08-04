@@ -1482,7 +1482,8 @@ void render_3d(double campos_x, double campos_y, double campos_z, double camera_
 		}
 	}
 
-	if(realtime_pc_enabled)
+	extern bool show_realtime_pc;
+	if(realtime_pc_enabled && show_realtime_pc)
 	{
 		render_pc(&realtime_pc);
 	}

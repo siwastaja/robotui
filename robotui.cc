@@ -67,6 +67,7 @@
 #define I16TOBUF(i_, b_, s_) {(b_)[(s_)] = ((i_)>>8)&0xff; (b_)[(s_)+1] = ((i_)>>0)&0xff; }
 
 bool view_3d = false;
+bool show_realtime_pc = true;
 
 
 char status_text[2000];
@@ -470,7 +471,7 @@ tof_raw_ambient8_t latest_tof_ambients[N_TOF_SENSORS];
 #define DATA_OVEREXP 65535
 
 float red_dist  = 0.0;
-float blue_dist = 15000.0;
+float blue_dist = 20000.0;
 //float red_dist  = 1600.0;
 //float blue_dist = 2200.0;
 
@@ -2390,6 +2391,17 @@ int main(int argc, char** argv)
 			}
 			else t_pressed = false;
 
+			static bool y_pressed;
+			if(sf::Keyboard::isKeyPressed(sf::Keyboard::Y))
+			{
+				if(!y_pressed)
+				{
+					show_realtime_pc = !show_realtime_pc;
+					y_pressed = true;
+				}
+			}
+			else y_pressed = false;
+
 
 			if(sf::Keyboard::isKeyPressed(sf::Keyboard::PageUp))
 			{
@@ -2624,8 +2636,8 @@ int main(int argc, char** argv)
 				draw_page_piles(win);
 
 
-			//draw_voxmap(win);
-			draw_realtime_pc_2d(win);
+			if(show_realtime_pc)
+				draw_realtime_pc_2d(win);
 
 
 			draw_robot(win);
