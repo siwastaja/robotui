@@ -68,6 +68,7 @@
 
 bool view_3d = false;
 bool show_realtime_pc = true;
+bool show_free = false;
 
 
 char status_text[2000];
@@ -123,36 +124,11 @@ extern int view2d_min_z;
 extern int view2d_max_z;
 
 
-int cur_slice = 0;
-int max_voxmap_alpha = 200;
-int voxmap_alpha;
 
-
-#define VOXMAP_ALPHA 255
-static const uint32_t voxmap_blank_color = RGBA32(0UL,  0UL, 0UL, 50UL);
 static const uint32_t forbidden_color = RGBA32(255UL,  190UL, 190UL, 255UL);
 static const uint32_t visited_color = RGBA32(255UL,  255L, 255UL, 255UL);
 static const uint32_t routing_allowed_color = RGBA32(255UL,  255UL, 255UL, 255UL);
 static const uint32_t routing_unallowed_color = RGBA32(0UL,  0UL, 0UL, 255UL);
-
-static const uint32_t voxmap_colors[16] = {
-/* 0           */ RGBA32(220UL, 50UL,220UL, VOXMAP_ALPHA),
-/* 1           */ RGBA32(140UL, 50UL,220UL, VOXMAP_ALPHA),
-/* 2           */ RGBA32(100UL,120UL,220UL, VOXMAP_ALPHA),
-/* 3           */ RGBA32( 20UL,100UL,240UL, VOXMAP_ALPHA),
-/* 4           */ RGBA32(  0UL,130UL,200UL, VOXMAP_ALPHA),
-/* 5           */ RGBA32(  0UL,160UL,160UL, VOXMAP_ALPHA),
-/* 6           */ RGBA32(  0UL,200UL,130UL, VOXMAP_ALPHA),
-/* 7           */ RGBA32(  0UL,220UL, 70UL, VOXMAP_ALPHA),
-/* 8           */ RGBA32(  0UL,250UL,  0UL, VOXMAP_ALPHA),
-/* 9           */ RGBA32( 50UL,220UL,  0UL, VOXMAP_ALPHA),
-/* 10          */ RGBA32( 90UL,190UL,  0UL, VOXMAP_ALPHA),
-/* 11          */ RGBA32(120UL,150UL,  0UL, VOXMAP_ALPHA),
-/* 12          */ RGBA32(150UL,120UL,  0UL, VOXMAP_ALPHA),
-/* 13          */ RGBA32(190UL, 90UL,  0UL, VOXMAP_ALPHA),
-/* 14          */ RGBA32(220UL, 50UL,  0UL, VOXMAP_ALPHA),
-/* 15          */ RGBA32(250UL,  0UL,  0UL, VOXMAP_ALPHA),
-};
 
 
 
@@ -936,180 +912,6 @@ sonar_point_t sonar[SONAR_POINTS];
 static int sonar_wr = 0;
 
 
-#define VOX_SEG_XS 100
-#define VOX_SEG_YS 100
-#define VOX_HIRES_UNIT 50 // mm
-#define VOX_LORES_UNIT 100 // mm
-
-typedef struct __attribute__((packed))
-{
-	mcu_multi_voxel_map_t msgs[4];
-} full_voxel_map_t;
-
-full_voxel_map_t latest_voxmap;
-
-
-
-typedef struct
-{
-	int xmin;
-	int xmax;
-	int ymin;
-	int ymax;
-	int reso;
-} seg_limits_t;
-
-const seg_limits_t seg_lims[12] =
-{
-	{	// Seg 0
-		0, VOX_SEG_XS*VOX_HIRES_UNIT-1,
-		0, VOX_SEG_YS*VOX_HIRES_UNIT-1,
-		VOX_HIRES_UNIT
-	},
-
-	{	// Seg 1
-		-VOX_SEG_XS*VOX_HIRES_UNIT, -1,
-		0, VOX_SEG_YS*VOX_HIRES_UNIT-1,
-		VOX_HIRES_UNIT
-	},
-
-	{	// Seg 2
-		-VOX_SEG_XS*VOX_HIRES_UNIT, -1,
-		-VOX_SEG_YS*VOX_HIRES_UNIT, -1,
-		VOX_HIRES_UNIT
-	},
-
-	{	// Seg 3
-		0, VOX_SEG_XS*VOX_HIRES_UNIT-1,
-		-VOX_SEG_YS*VOX_HIRES_UNIT, -1,
-		VOX_HIRES_UNIT
-	},
-
-	{	// Seg 4
-		VOX_SEG_XS*VOX_HIRES_UNIT, VOX_SEG_XS*VOX_HIRES_UNIT + VOX_SEG_XS*VOX_LORES_UNIT-1,
-		-VOX_SEG_YS*VOX_HIRES_UNIT, VOX_SEG_YS*VOX_HIRES_UNIT-1,
-		VOX_LORES_UNIT
-	},
-
-	{	// Seg 5
-		VOX_SEG_XS*VOX_HIRES_UNIT, VOX_SEG_XS*VOX_HIRES_UNIT + VOX_SEG_XS*VOX_LORES_UNIT-1,
-		VOX_SEG_YS*VOX_HIRES_UNIT, VOX_SEG_YS*VOX_HIRES_UNIT + VOX_SEG_YS*VOX_LORES_UNIT-1,
-		VOX_LORES_UNIT
-	},
-
-	{	// Seg 6
-		-VOX_SEG_XS*VOX_HIRES_UNIT, VOX_SEG_XS*VOX_HIRES_UNIT-1,
-		VOX_SEG_YS*VOX_HIRES_UNIT, VOX_SEG_YS*VOX_HIRES_UNIT + VOX_SEG_YS*VOX_LORES_UNIT-1,
-		VOX_LORES_UNIT
-	},
-
-	{	// Seg 7
-		-VOX_SEG_XS*VOX_HIRES_UNIT - VOX_SEG_XS*VOX_LORES_UNIT, -VOX_SEG_XS*VOX_HIRES_UNIT-1,
-		VOX_SEG_YS*VOX_HIRES_UNIT, VOX_SEG_YS*VOX_HIRES_UNIT + VOX_SEG_YS*VOX_LORES_UNIT-1,
-		VOX_LORES_UNIT
-	},
-
-	{	// Seg 8
-		-VOX_SEG_XS*VOX_HIRES_UNIT - VOX_SEG_XS*VOX_LORES_UNIT, -VOX_SEG_XS*VOX_HIRES_UNIT-1,
-		-VOX_SEG_YS*VOX_HIRES_UNIT, VOX_SEG_YS*VOX_HIRES_UNIT-1,
-		VOX_LORES_UNIT
-	},
-
-	{	// Seg 9
-		-VOX_SEG_XS*VOX_HIRES_UNIT - VOX_SEG_XS*VOX_LORES_UNIT, -VOX_SEG_XS*VOX_HIRES_UNIT-1,
-		-VOX_SEG_YS*VOX_HIRES_UNIT-VOX_SEG_YS*VOX_LORES_UNIT, -VOX_SEG_YS*VOX_HIRES_UNIT-1,
-		VOX_LORES_UNIT
-	},
-
-	{	// Seg 10
-		-VOX_SEG_XS*VOX_HIRES_UNIT, VOX_SEG_XS*VOX_HIRES_UNIT-1,
-		-VOX_SEG_YS*VOX_HIRES_UNIT-VOX_SEG_YS*VOX_LORES_UNIT, -VOX_SEG_YS*VOX_HIRES_UNIT-1,
-		VOX_LORES_UNIT
-	},
-
-	{	// Seg 11
-		VOX_SEG_XS*VOX_HIRES_UNIT, VOX_SEG_XS*VOX_HIRES_UNIT + VOX_SEG_XS*VOX_LORES_UNIT-1,
-		-VOX_SEG_YS*VOX_HIRES_UNIT-VOX_SEG_YS*VOX_LORES_UNIT, -VOX_SEG_YS*VOX_HIRES_UNIT-1,
-		VOX_LORES_UNIT
-	}
-
-};
-
-
-void draw_voxmap_seg(sf::RenderWindow& win, uint16_t* map, int xoffs_mm, int yoffs_mm, int reso)
-{
-	const int xs = 100;
-	const int ys = 100;
-
-	static uint32_t pixels[100*100];
-
-	float scale = (float)reso/mm_per_pixel;
-
-	for(int yy=0; yy < ys; yy++)
-	{
-		for(int xx=0; xx < xs; xx++)
-		{
-			uint16_t val = map[yy*xs+xx];
-			/* really one at once:
-			if(val&(1<<cur_slice))
-				pixels[yy*xs+xx] = voxmap_colors[cur_slice];
-			else
-				pixels[yy*xs+xx] = voxmap_blank_color;
-			*/
-
-			pixels[(ys-1-yy)*xs+xx] = voxmap_blank_color;
-			for(int slice = 0; slice<cur_slice; slice++)
-			{
-				if(val&(1<<slice))
-					pixels[(ys-1-yy)*xs+xx] = voxmap_colors[slice];
-			}
-
-		}
-	}
-
-	float ang = 0;
-
-//	printf("xoffs_mm = %d,  yoffs_mm = %d,  reso = %d\n", xoffs_mm, yoffs_mm, reso);
-
-	sf::Texture t;
-	t.create(xs,ys);
-	t.setSmooth(false);
-	t.update((uint8_t*)pixels);
-	sf::Sprite sprite;
-	sprite.setTexture(t);
-	sprite.setOrigin(0, ys-0);
-	sprite.setRotation(ang);
-	sprite.setPosition((xoffs_mm+origin_x)/mm_per_pixel, (-1*yoffs_mm+origin_y)/mm_per_pixel);
-	sprite.setScale(sf::Vector2f(scale, scale));
-	sprite.setColor(sf::Color(255,255,255,voxmap_alpha));
-	win.draw(sprite);
-
-}
-
-bool animate_slice = false;
-void draw_voxmap(sf::RenderWindow& win)
-{
-	for(int seg=0; seg<12; seg++)
-	{
-		draw_voxmap_seg(win, latest_voxmap.msgs[seg/3].maps[seg%3],seg_lims[seg].xmin+latest_voxmap.msgs[seg/3].ref_x, seg_lims[seg].ymin+latest_voxmap.msgs[seg/3].ref_y, (seg<4)?50:100);
-	}
-
-
-	static int cnt = 0;
-	cnt++;
-
-	if(animate_slice)
-	{
-		if((cur_slice < 16 && cnt >= 2) || (cnt >= 10))
-		{
-			cnt = 0;
-			cur_slice++;
-			if(cur_slice > 16) cur_slice = 1;
-		}
-	}
-	else
-		cur_slice = 16;
-}
 
 
 void draw_sonar(sf::RenderWindow& win)
@@ -1228,6 +1030,9 @@ void print_test_msg2(void* m)
 {
 }
 void print_test_msg3(void* m)
+{
+}
+void print_gyrocal_results(void* m)
 {
 }
 
@@ -1375,55 +1180,12 @@ void print_drive_diag(void* m)
 
 void print_mcu_voxel_map(void* m)
 {
-	printf("WARN: mcu_voxel_map not supported anymore, use mcu_multi_voxel_map\n");
-/*	mcu_voxel_map_t *mm = m;
-
-	int id = mm->block_id;
-
-	printf("Voxel map block %u  z_step %u  base_z %d, running_cnt=%u, ref (%d,%d)\n", id, mm->z_step, mm->base_z, mm->running_cnt, mm->ref_x, mm->ref_y);
-
-	if(id < 0 || id > 12)
-	{
-		printf("Invalid vox map block id %d\n", id);
-		return;
-	}
-	if(id == 0)
-	{
-		latest_voxmap.ref_x = mm->ref_x;
-		latest_voxmap.ref_y = mm->ref_y;
-		latest_voxmap.running_cnt = mm->running_cnt;
-	}
-	else
-	{
-		if(mm->running_cnt != latest_voxmap.running_cnt)
-		{
-			printf("WARNING: running cnt changed, skipped voxmap seg 0?\n");
-			return;
-		}
-	}
-
-	memcpy(latest_voxmap.segs[id], mm->map, sizeof(latest_voxmap.segs[0]));
-*/
+	printf("WARN: mcu_voxel_map is deprecated, ignoring\n");
 }
 
 void print_mcu_multi_voxel_map(void* m)
 {
-	mcu_multi_voxel_map_t *mm = m;
-
-	int first_id = mm->first_block_id;
-	int msgid = first_id/3;
-
-	if(first_id%3 != 0 || first_id > 12 || first_id < 0)
-	{
-		printf("WARNING: Invalid first_id (%d) in multi_voxel_map\n", first_id);
-		return;
-	}
-
-//	printf("Got multi voxel map, first id = %d. Msg id = %d\n", first_id, msgid);
-
-	voxmap_alpha = max_voxmap_alpha;
-
-	memcpy(&latest_voxmap.msgs[msgid], m, sizeof(latest_voxmap.msgs[0]));
+	printf("WARN: mcu_multi_voxel_map is deprecated, ignoring\n");
 }
 
 void print_chafind_results(void* m)
@@ -1611,6 +1373,12 @@ int parse_message(uint16_t id, uint32_t len)
 		case 447:
 		{
 			process_realtime_pointcloud(rxbuf, len, view_3d);
+		}
+		break;
+
+		case 448:
+		{
+			process_tcp_voxmap(rxbuf, len);
 		}
 		break;
 
@@ -1974,6 +1742,17 @@ int main(int argc, char** argv)
 	decors[INFO_STATE_DAIJUING].loadFromFile("decoration/party.png");
 
 	
+	sfml_gui gui(win, arial);
+
+	#define BUT_WIDTH 220
+	int but_start_x = screen_x-BUT_WIDTH;
+	int but_state_vect[STATE_VECT_LEN];
+
+	for(int i=0; i<STATE_VECT_LEN; i++)
+	{
+		but_state_vect[i] = gui.add_button(but_start_x, 50 + i*29, 190, 22, state_vect_names[i], DEF_BUT_COL, /*font size:*/12, -1, DEF_BUT_COL_PRESSED, SYM_STOP);
+		state_vect_to_send.table[i] = received_state_vect.table[i] = 0;
+	}
 
 	bool click_on = false;
 	bool ignore_click = false;
@@ -1999,6 +1778,22 @@ int main(int argc, char** argv)
 	{
 		cnt++;
 
+
+		state_is_unsynchronized = 0;
+		for(int i=0; i<STATE_VECT_LEN; i++)
+		{
+			gui.buttons[but_state_vect[i]]->pressed = state_vect_to_send.table[i];
+			if(received_state_vect.table[i] != state_vect_to_send.table[i])
+			{
+				gui.buttons[but_state_vect[i]]->symbol = SYM_PLAY;
+				state_is_unsynchronized = 1;
+			}
+			else
+			{
+				gui.buttons[but_state_vect[i]]->symbol = SYM_STOP;
+			}
+		}
+
 		sf::Event event;
 		while (win.pollEvent(event))
 		{
@@ -2009,6 +1804,11 @@ int main(int argc, char** argv)
 				sf::Vector2u size = win.getSize();
 				screen_x = size.x;
 				screen_y = size.y;
+				but_start_x = screen_x-BUT_WIDTH;
+				for(int i=0; i<STATE_VECT_LEN; i++)
+				{
+					gui.buttons[but_state_vect[i]]->x = but_start_x;
+				}
 
 				sf::FloatRect visibleArea(0, 0, screen_x, screen_y);
 				win.setView(sf::View(visibleArea));
@@ -2095,6 +1895,7 @@ int main(int argc, char** argv)
 			NOTHING:;
 		}
 
+		bool state_button_pressed = false;
 		if(focus)
 		{
 			sf::Vector2i localPosition = sf::Mouse::getPosition(win);
@@ -2102,6 +1903,24 @@ int main(int argc, char** argv)
 
 			if(localPosition.x > 2 && localPosition.x < screen_x-2 && localPosition.y > 2 && localPosition.y < screen_y-2)
 			{
+				int but = gui.check_button_status();
+				if(but>-1) state_button_pressed = true;
+				static bool statebut_pressed[STATE_VECT_LEN];
+				for(int i=0; i<STATE_VECT_LEN; i++)
+				{
+					if(but == but_state_vect[i])
+					{
+						if(!statebut_pressed[i])
+						{
+							statebut_pressed[i] = true;
+							state_vect_to_send.table[i] = received_state_vect.table[i]?0:1;
+							send(364, STATE_VECT_LEN, state_vect_to_send.table);
+						}				
+					}
+					else
+						statebut_pressed[i] = false;
+				}
+
 				int click_x = localPosition.x;
 				int click_y = localPosition.y;
 				click_x_mm = (localPosition.x * mm_per_pixel) - origin_x;
@@ -2306,6 +2125,30 @@ int main(int argc, char** argv)
 
 							} break;
 
+							case MENU_ROUTE_HERE: 
+							{
+								clear_route(&some_route);
+								sprintf(status_text, "Status bar");
+		
+								dest_x = point_x_mm; dest_y = point_y_mm;
+
+								int x = dest_x; int y = dest_y;
+
+								uint8_t test[9] = {(x>>24)&0xff,(x>>16)&0xff,(x>>8)&0xff,(x>>0)&0xff,
+									(y>>24)&0xff, (y>>16)&0xff, (y>>8)&0xff, (y>>0)&0xff, 0};
+
+								if(send(356, 9, test))
+								{
+									printf("Send error\n");
+									sprintf(status_text, "Send error, connection lost?");
+								}
+								else
+								{
+									sprintf(status_text, "Sent command: move directly");
+								}
+
+							} break;
+
 							default: break;
 
 						}
@@ -2362,7 +2205,7 @@ int main(int argc, char** argv)
 				}
 				else
 				{
-					if(!ignore_click && click_on && abs(click_x-click_start_x) < 2 && abs(click_y-click_start_y) < 2)
+					if(!ignore_click && click_on && abs(click_x-click_start_x) < 2 && abs(click_y-click_start_y) < 2 && (click_x < but_start_x))
 					{
 						if(!is_popup_enabled(&popup_menu))
 							enable_popup_menu(&popup_menu, click_x, click_y);
@@ -2497,9 +2340,11 @@ int main(int argc, char** argv)
 			else
 				show_routing = false;
 
+			show_free = sf::Keyboard::isKeyPressed(sf::Keyboard::F);
 
 
-			float speed = 64.0;
+
+			float speed = 100.0;
 
 			if(sf::Keyboard::isKeyPressed(sf::Keyboard::LShift) || sf::Keyboard::isKeyPressed(sf::Keyboard::RShift))
 				speed *= 4.0;
@@ -2525,11 +2370,11 @@ int main(int argc, char** argv)
 				campos_x += speed*cos(camera_yaw-(M_PI/2.0));
 			}
 
-			if(sf::Keyboard::isKeyPressed(sf::Keyboard::R))
+			if(sf::Keyboard::isKeyPressed(sf::Keyboard::PageUp))
 			{
 				campos_z += speed;
 			}
-			if(sf::Keyboard::isKeyPressed(sf::Keyboard::F))
+			if(sf::Keyboard::isKeyPressed(sf::Keyboard::PageDown))
 			{
 				campos_z += -speed;
 			}
@@ -2543,31 +2388,24 @@ int main(int argc, char** argv)
 				view_3d = false;
 			}
 
-			if(sf::Keyboard::isKeyPressed(sf::Keyboard::G))
-			{
-				animate_slice = true;
-			}
-			else
-				animate_slice = false;
-
 			if(sf::Keyboard::isKeyPressed(sf::Keyboard::Up))
 			{
-				view2d_max_z += 100;
+				view2d_max_z += 50;
 				reload_map();
 			}
 			if(sf::Keyboard::isKeyPressed(sf::Keyboard::Down))
 			{
-				view2d_max_z -= 100;
+				view2d_max_z -= 50;
 				reload_map();
 			}
 			if(sf::Keyboard::isKeyPressed(sf::Keyboard::Left))
 			{
-				view2d_min_z -= 100;
+				view2d_min_z -= 50;
 				reload_map();
 			}
 			if(sf::Keyboard::isKeyPressed(sf::Keyboard::Right))
 			{
-				view2d_min_z += 100;
+				view2d_min_z += 50;
 				reload_map();
 			}
 
@@ -2707,8 +2545,11 @@ int main(int argc, char** argv)
 		}
 
 
+
 		draw_popup_menu(win, &popup_menu);
 
+		if(!popup_menu.enabled)
+			gui.draw_all_buttons();
 
 		win.display();
 
@@ -2725,9 +2566,6 @@ int main(int argc, char** argv)
 			sonar[sonar_wr].c = 0;
 			sonar_wr++; if(sonar_wr >= SONAR_POINTS) sonar_wr = 0;
 		}
-
-		if(voxmap_alpha>0) voxmap_alpha-=1;
-		if(voxmap_alpha<0) voxmap_alpha=0;
 
 	}
 

@@ -48,6 +48,8 @@ void wait_manage_mesh();
 void reload_3d_map(double campos_x, double campos_y, double campos_z, double camera_yaw, double camera_pitch);
 
 void process_realtime_pointcloud(uint8_t* buf, int buflen, bool view_3d);
+void process_tcp_voxmap(uint8_t* buf, int buflen);
+
 void draw_realtime_pc_2d(sf::RenderWindow& win);
 
 extern sf::Mutex mutex_gl;

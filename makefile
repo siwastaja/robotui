@@ -9,17 +9,17 @@ ROBOTUI_OBJ = robotui.o client_memdisk.o sfml_gui.o
 
 all: robotui
 
-%.o: %.cc
-	$(CC) -c $(CXXFLAGS) $*.cc -o $*.o
-	$(CC) -MM $(CXXFLAGS) $*.cc > $*.d
-	@mv -f $*.d $*.d.tmp
-	@sed -e 's|.*:|$*.o:|' < $*.d.tmp > $*.d
-	@sed -e 's/.*://' -e 's/\\$$//' < $*.d.tmp | fmt -1 | \
-	  sed -e 's/^ *//' -e 's/$$/:/' >> $*.d
-	@rm -f $*.d.tmp
+$(ROBOTUI_OBJ): %.o: %.cc
+	$(CC) -c $(CXXFLAGS) $< -o $@
 
-robotui: $(ROBOTUI_OBJ)
-	$(LD) $(LDFLAGS) -o robotui $^ voxmap.o voxmap_memdisk.o -lm -lsfml-network -lsfml-graphics -lsfml-window -lsfml-system -lGL -lGLEW -lz
+voxmap.o:
+	gcc -c ../robotsoft/voxmap.c -O2 -Wall -o ./voxmap.o
+
+voxmap_memdisk.o:
+	gcc -c ../robotsoft/voxmap_memdisk.c -O2 -Wall -o ./voxmap_memdisk.o
+
+robotui: $(ROBOTUI_OBJ) voxmap.o voxmap_memdisk.o
+	$(LD) $(LDFLAGS) -o robotui $(ROBOTUI_OBJ) voxmap.o voxmap_memdisk.o -lm -lsfml-network -lsfml-graphics -lsfml-window -lsfml-system -lGL -lGLEW -lz
 
 e:
 	gedit --new-window makefile `echo "$(ROBOTUI_OBJ)" | sed s/"\.o"/"\.cc"/g` `echo "$(ROBOTUI_OBJ)" | sed s/"\.o"/"\.h"/g` vertex_shader.glsl fragment_shader.glsl &

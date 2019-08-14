@@ -42,6 +42,9 @@ extern "C" {
 #include "../robotsoft/voxmap_memdisk.h"
 }
 
+#define RGBA32(r_,g_,b_,a_)  ((r_) | ((g_)<<8) | ((b_)<<16) | ((a_)<<24))
+
+
 #if 0
 #define MAX_LEVELS 8
 #define LEVEL_EMPTY 0
@@ -68,8 +71,11 @@ static sf::Texture tex_full_map;
 
 typedef struct
 {
-	sf::Texture* textures[8];
+	sf::Texture* textures[MAX_RESOLEVELS];
+	sf::Texture* routing_texture;
 } map_2d_page_pile_t;
+#define ROUTING_RL 1 // has to match the ROUTING_RL on the robot's routing.c
+#define ROUTING_MAP_PAGE_W 128
 
 map_2d_page_pile_t piles[MAX_PAGES_X*MAX_PAGES_Y];
 
@@ -78,11 +84,81 @@ int view2d_max_z = 1900;
 
 static char mapdir[1024];
 
+typedef struct __attribute__((packed))
+{
+	uint32_t dummy1;
+	uint16_t dummy2;
+	uint8_t dummy3;
+	uint8_t flags;
+	uint32_t routing[ROUTING_MAP_PAGE_W][ROUTING_MAP_PAGE_W/32 + 1];
+} routing_page_t;
+
 //static int display_limit[4] = {1, 3, 6, 6};
 static int display_limit[4]   = {3, 6, 15, 15};
 static void load_page_pile_from_disk(int px, int py, int rl, int do_reload)
 {
-	assert(px >= 0 && px < MAX_PAGES_X && py >= 0 && py < MAX_PAGES_Y && rl >= 0 && rl < 8);
+	assert(px >= 0 && px < MAX_PAGES_X && py >= 0 && py < MAX_PAGES_Y && rl >= 0 && rl < MAX_RESOLEVELS);
+
+	// Load routing, if necessary, and if found.
+	if((!piles[py*MAX_PAGES_X+px].routing_texture || do_reload))// && px==255 && py==255)
+	{
+
+		char fname[4096];
+		snprintf(fname, 4096, "./current_routing/routing_%u_%u.routing", px, py);
+		FILE* f = fopen(fname, "r");
+
+		if(f)
+		{
+			routing_page_t rout_in; // about 2.5kB, in stack
+			uint32_t* tmprout = (uint32_t*)malloc(ROUTING_MAP_PAGE_W*ROUTING_MAP_PAGE_W*sizeof(uint32_t));
+			assert(tmprout);
+
+			if(fread(&rout_in, sizeof(rout_in), 1, f) != 1 || ferror(f))
+			{
+				printf("ERROR: Reading file %s failed.\n", fname);
+			}
+			else
+			{
+				if(!piles[py*MAX_PAGES_X+px].routing_texture)
+				{
+					//printf("New texture\n");
+					piles[py*MAX_PAGES_X+px].routing_texture = new sf::Texture;
+					piles[py*MAX_PAGES_X+px].routing_texture->create(ROUTING_MAP_PAGE_W, ROUTING_MAP_PAGE_W);
+					piles[py*MAX_PAGES_X+px].routing_texture->setSmooth(false);
+				}
+
+
+				for(int yy=0; yy<ROUTING_MAP_PAGE_W; yy++)
+				{
+					for(int xx=0; xx<ROUTING_MAP_PAGE_W; xx++)
+					{
+						int y = yy/32;
+						int y_remain = yy%32;
+
+						// In SFML coordinate system, y is mirrored - mirror in the texture.
+		
+						if(rout_in.routing[xx][y] & (1<<y_remain))
+						{
+							tmprout[(ROUTING_MAP_PAGE_W-1-yy)*ROUTING_MAP_PAGE_W+xx] = RGBA32(0,0,0,255);
+						}
+						else
+						{
+							tmprout[(ROUTING_MAP_PAGE_W-1-yy)*ROUTING_MAP_PAGE_W+xx] = RGBA32(255,255,255,255);
+						}
+
+					}
+
+				}
+
+				piles[py*MAX_PAGES_X+px].routing_texture->update((uint8_t*)tmprout);
+
+			}
+
+			free(tmprout);
+			fclose(f);
+
+		}
+	}
 
 	//printf("load_page_pile(%d,%d,rl%d)\n", px, py, rl);
 	if(piles[py*MAX_PAGES_X+px].textures[rl] && !do_reload)
@@ -314,6 +390,7 @@ void draw_full_map(sf::RenderWindow& win)
 extern int screen_x;
 extern int screen_y;
 
+extern bool show_routing;
 void draw_page_piles(sf::RenderWindow& win)
 {
 	int pix_start_x = -1.0*origin_x/mm_per_pixel;
@@ -342,27 +419,51 @@ void draw_page_piles(sf::RenderWindow& win)
 				continue;
 			}
 
-			// Draw the highest resolution loaded:
-			for(int rl=0; rl<4; rl++)
+			if(show_routing)
 			{
-				if(piles[py*MAX_PAGES_X+px].textures[rl])
+				if(piles[py*MAX_PAGES_X+px].routing_texture)
 				{
 					sf::Sprite sprite;
 
-					float scale = (float)MAP_PAGE_XY_W_MM/mm_per_pixel/(float)VOX_XS[rl];
+					float scale = (float)MAP_PAGE_XY_W_MM/mm_per_pixel/(float)VOX_XS[ROUTING_RL];
 
 					sprite.setOrigin(0, 0);
-					sprite.setTexture(*piles[py*MAX_PAGES_X+px].textures[rl]);
+					sprite.setTexture(*piles[py*MAX_PAGES_X+px].routing_texture);
 					sprite.setPosition(
 						(origin_x+(px-MAX_PAGES_X/2)*MAP_PAGE_XY_W_MM)/mm_per_pixel - scale/2.0,
 						(origin_y+(-1.0*((py-MAX_PAGES_Y/2+1)*MAP_PAGE_XY_W_MM)))/mm_per_pixel + scale/2.0);
 					// +/- scale/2.0: align to the middle of the voxels.
 					sprite.setScale(sf::Vector2f(scale, scale));
+					sprite.setColor(sf::Color(255,255,255,128));
 					win.draw(sprite);
 
-					break;
 				}
 			}
+			else
+			{
+				// Draw the highest resolution loaded:
+				for(int rl=0; rl<4; rl++)
+				{
+					if(piles[py*MAX_PAGES_X+px].textures[rl])
+					{
+						sf::Sprite sprite;
+
+						float scale = (float)MAP_PAGE_XY_W_MM/mm_per_pixel/(float)VOX_XS[rl];
+
+						sprite.setOrigin(0, 0);
+						sprite.setTexture(*piles[py*MAX_PAGES_X+px].textures[rl]);
+						sprite.setPosition(
+							(origin_x+(px-MAX_PAGES_X/2)*MAP_PAGE_XY_W_MM)/mm_per_pixel - scale/2.0,
+							(origin_y+(-1.0*((py-MAX_PAGES_Y/2+1)*MAP_PAGE_XY_W_MM)))/mm_per_pixel + scale/2.0);
+						// +/- scale/2.0: align to the middle of the voxels.
+						sprite.setScale(sf::Vector2f(scale, scale));
+						sprite.setColor(sf::Color(255,255,255,128));
+						win.draw(sprite);
+
+						break;
+					}
+				}
+			 }
 		}
 	}
 }
@@ -481,7 +582,7 @@ int manage_page_pile_ranges()
 	//printf("n_near=%d, n_far=%d\n", n_near, n_far);
 
 	int n_rls_loaded = 0;
-	for(int rl=0; rl<4; rl++)
+	for(int rl=0; rl<MAX_RESOLEVELS; rl++)
 	{
 		if(n_far <= n_load_allowed[rl])
 		{
@@ -554,9 +655,9 @@ void build_fullmap()
 		{
 			unsigned int px, py, pz, rl;
 
-			if(sscanf(dir->d_name, "voxmap_x%u_y%u_z%u_r%u.pluuvox", &px, &py, &pz, &rl) == 4)
+			if(sscanf(dir->d_name, "voxmap_x%u_y%u_z%u_r%u", &px, &py, &pz, &rl) == 4)
 			{
-				assert(px >= 0 && px < MAX_PAGES_X && py >= 0 && py < MAX_PAGES_Y && pz >=0 && pz < MAX_PAGES_Z && rl >= 0 && rl < 8);
+				assert(px >= 0 && px < MAX_PAGES_X && py >= 0 && py < MAX_PAGES_Y && pz >=0 && pz < MAX_PAGES_Z && rl >= 0 && rl < MAX_RESOLEVELS);
 				pages_exist[py*MAX_PAGES_X+px] = 1;
 				if(pz+1 > highest_pz[py*MAX_PAGES_X+px])
 					highest_pz[py*MAX_PAGES_X+px] = pz+1;
@@ -806,9 +907,13 @@ void init_opengl(sf::RenderWindow& win)
 #define MAX_TRIANGLES_PER_MESH (MAX_CUBES_PER_MESH*12)
 #define MAX_VERTICES_PER_MESH (MAX_TRIANGLES_PER_MESH*3)
 
-#define RGBA32(r_,g_,b_,a_)  ((r_) | ((g_)<<8) | ((b_)<<16) | ((a_)<<24))
 
-#define TEST_VOXMAP(x_, y_, z_, rl_) ((p_voxmap->voxels[(y_)*VOX_XS[rl_]*VOX_ZS[rl_]+(x_)*VOX_ZS[rl_]+(z_)] & 0x0f) >= display_limit[rl_])
+
+extern bool show_free;
+
+#define TEST_VOXMAP(x_, y_, z_, rl_) (show_free? \
+	(((p_voxmap->voxels[(y_)*VOX_XS[rl_]*VOX_ZS[rl_]+(x_)*VOX_ZS[rl_]+(z_)] & 0xf0)>>4) >= display_limit[rl_]) : \
+	((p_voxmap->voxels[(y_)*VOX_XS[rl_]*VOX_ZS[rl_]+(x_)*VOX_ZS[rl_]+(z_)] & 0x0f) >= display_limit[rl_]))
 
 
 sf::Mutex mutex_gl;
@@ -1444,7 +1549,52 @@ void process_realtime_pointcloud(uint8_t* buf, int buflen, bool view_3d)
 	}
 }
 
+void process_tcp_voxmap(uint8_t* buf, int buflen)
+{
+	voxmap_header_t* p_head = (voxmap_header_t*)buf;
+	uint8_t* p_data = buf + sizeof(voxmap_header_t);
 
+	assert(p_head->magic == 0xaa13);
+	if(p_head->api_version != 0x0420)
+	{
+		printf("WARNING: tcp voxmap has api version 0x%04x, expecting 0x0420. Data may be incorrect; trying to use it. Make sure you use same software versions on both ends.\n", 
+			p_head->api_version);
+	}
+	assert(p_head->compression == 1);
+
+	// Find the resolevel:
+	int rl;
+	for(rl=0; rl<MAX_RESOLEVELS; rl++)
+	{
+		if(p_head->xs == VOX_XS[rl] && p_head->ys == VOX_YS[rl] && p_head->zs == VOX_ZS[rl])
+			break;
+	}
+
+	if(rl==MAX_RESOLEVELS)
+	{
+		printf("WARNING: tcp voxmap has incompatible dimensions (%d x %d x %d), not matching the voxmap memdisk system possibilities. Ignoring the voxmap. Make sure you use same software versions on both ends.\n",
+			p_head->xs, p_head->ys, p_head->zs);
+		return;
+	}
+
+	po_coords_t po = po_coords(p_head->ref_x_mm, p_head->ref_y_mm, p_head->ref_z_mm, rl);
+
+
+	static char fnamebuf[2048];
+	FILE* f = fopen(gen_fname(mapdir, po.px, po.py, po.pz, rl, fnamebuf), "w");
+	if(!f)
+	{
+		printf("ERROR opening %s for write. Ignoring received map.\n", fnamebuf);
+		return;
+	}
+
+	if(fwrite(buf, buflen, 1, f) != 1)
+	{
+		printf("ERROR: Writing map to file %s failed. Ignoring received map.\n", fnamebuf);
+	}
+
+	fclose(f);
+}
 
 void render_3d(double campos_x, double campos_y, double campos_z, double camera_yaw, double camera_pitch)
 {
@@ -1647,9 +1797,9 @@ static int do_manage_mesh_ranges()
 //	int ybias = 0;
 //	int zbias = 0;
 
-	static const int extra_x[MAX_RESOLEVELS] = {1, 2, 4, 8, 8, 8};
-	static const int extra_y[MAX_RESOLEVELS] = {1, 2, 4, 8, 8, 8};
-	static const int extra_z[MAX_RESOLEVELS] = {1, 2, 3, 8, 8, 8};
+	static const int extra_x[MAX_RESOLEVELS] = {1, 2, 4, 8};
+	static const int extra_y[MAX_RESOLEVELS] = {1, 2, 4, 8};
+	static const int extra_z[MAX_RESOLEVELS] = {1, 2, 3, 8};
 
 
 	printf("bias %d  %d  %d\n", xbias, ybias, zbias);
