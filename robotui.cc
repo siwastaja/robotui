@@ -1288,8 +1288,8 @@ int parse_message(uint16_t id, uint32_t len)
 				sprintf(status_text, "Manual movement STOPPED, start=(%d,%d)mm -> req=(%d,%d)mm, actual=(%d,%d)mm, statuscode=%u, HW obstacle flags=%08x", mov_start_x, mov_start_y, mov_requested_x, mov_requested_y, mov_cur_x, mov_cur_y, mov_status, mov_obstacle_flags);
 
 			printf("STATUS MESSAGE: %s\n", status_text);
-			void run_vacuum_area();
-			run_vacuum_area();
+			//void run_vacuum_area();
+			//run_vacuum_area();
 		}
 		break;
 
@@ -1786,17 +1786,19 @@ void run_vacuum_area_bubblegum_plusplus()
 	int x = vacuum_path_x[vacuum_cur_i-1];
 	int y = vacuum_path_y[vacuum_cur_i-1];
 
-	timer+=2;
+	timer++;
 
-	if(fabs(cur_x-(double)x) < 500.0 && fabs(cur_y-(double)y) < 500.0)
-	{
-		timer--;
-	}
+	if(fabs(cur_x-(double)x) < 400.0 && fabs(cur_y-(double)y) < 400.0)
+		timer+=5;
 
-	if(timer > 1000)
+	if(fabs(cur_x-(double)x) < 200.0 && fabs(cur_y-(double)y) < 200.0)
+		timer+=5;
+
+	if(timer > 800)
 	{
-		printf("run_vacuum_area() called by watchdog\n");
+		timer = 0;
 		run_vacuum_area();
+		
 	}
 
 }
