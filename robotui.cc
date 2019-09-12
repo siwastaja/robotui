@@ -1002,6 +1002,14 @@ void go_charge_msg(uint8_t params)
 	send(357, 1, test);
 }
 
+void teach_charger_msg(uint8_t params)
+{
+	uint8_t test[1] = {params};
+
+	send(366, 1, test);
+}
+
+
 void maintenance_msg(int restart_mode)
 {
 	const int size = 4+4;
@@ -1280,6 +1288,8 @@ int parse_message(uint16_t id, uint32_t len)
 				sprintf(status_text, "Manual movement STOPPED, start=(%d,%d)mm -> req=(%d,%d)mm, actual=(%d,%d)mm, statuscode=%u, HW obstacle flags=%08x", mov_start_x, mov_start_y, mov_requested_x, mov_requested_y, mov_cur_x, mov_cur_y, mov_status, mov_obstacle_flags);
 
 			printf("STATUS MESSAGE: %s\n", status_text);
+			void run_vacuum_area();
+			run_vacuum_area();
 		}
 		break;
 
@@ -1404,7 +1414,7 @@ typedef struct
 	char* text;
 } popup_menu_item_t;
 
-#define POPUP_MENU_MAX_ITEMS 8
+#define POPUP_MENU_MAX_ITEMS 10
 typedef struct
 {
 	int enabled;
@@ -1431,7 +1441,7 @@ popup_menu_t popup_menu =
 	0,
 	10,
 	10,
-	6,
+	9,
 	{
 #define MENU_EXPLORE_3D 0
 		{
@@ -1478,10 +1488,37 @@ popup_menu_t popup_menu =
 			sf::Color(160,160,210,255),
 			"Backward"
 		},
-#define MENU_CLOSE_MENU 5
+#define MENU_AREA_POINT 5
 		{
 			1,
 			0, 4*MENU_ITEM_YGAP,
+			MENU_ITEM_XS, MENU_ITEM_YS,
+			16,
+			sf::Color(160,210,160,255),
+			"4-point vacuum area"
+		},
+#define MENU_VACUUM_START 6
+		{
+			1,
+			0, 5*MENU_ITEM_YGAP,
+			MENU_ITEM_XS/2-8, MENU_ITEM_YS,
+			14,
+			sf::Color(160,210,160,255),
+			"Vacuum on"
+		},
+#define MENU_VACUUM_STOP 7
+		{
+			1,
+			MENU_ITEM_XS/2+8, 5*MENU_ITEM_YGAP,
+			MENU_ITEM_XS/2-8, MENU_ITEM_YS,
+			14,
+			sf::Color(160,210,160,255),
+			"Vacuum off"
+		},
+#define MENU_CLOSE_MENU 8
+		{
+			1,
+			0, 6*MENU_ITEM_YGAP,
 			MENU_ITEM_XS, MENU_ITEM_YS,
 			16,
 			sf::Color(160,210,160,255),
@@ -1491,6 +1528,7 @@ popup_menu_t popup_menu =
 		
 	}	
 };
+
 
 const int x_margin = 8;
 const int y_margin = 8;
@@ -1664,6 +1702,199 @@ void animate()
 }
 
 
+int area_point = 0;
+int area_valid = 0;
+double area_point_x[4];
+double area_point_y[4];
+int vacuum_path_n;
+int vacuum_path_x[2048];
+int vacuum_path_y[2048];
+
+int vacuum_cur_i;
+int vacuum_run = 0;
+
+void vacuum_on()
+{
+	for(int i=0; i<STATE_VECT_LEN; i++)
+	{
+		state_vect_to_send.table[i] = received_state_vect.table[i];
+	}
+	state_vect_to_send.v.vacuum_on = 1;
+	usleep(10000);
+	send(364, STATE_VECT_LEN, state_vect_to_send.table);
+	usleep(10000);
+}
+
+void vacuum_off()
+{
+	for(int i=0; i<STATE_VECT_LEN; i++)
+	{
+		state_vect_to_send.table[i] = received_state_vect.table[i];
+	}
+	state_vect_to_send.v.vacuum_on = 0;
+	usleep(10000);
+	send(364, STATE_VECT_LEN, state_vect_to_send.table);
+	usleep(10000);
+}
+
+int timer = 0;
+void run_vacuum_area()
+{
+	timer = 0;
+	printf("run_vacuum_area(), run=%d, cur_i=%d, n=%d\n", vacuum_run, vacuum_cur_i, vacuum_path_n);
+	if(!vacuum_run)
+		return;
+	assert(vacuum_cur_i < vacuum_path_n);
+
+	int x = vacuum_path_x[vacuum_cur_i];
+	int y = vacuum_path_y[vacuum_cur_i];
+
+	printf("x=%d, y=%d\n", x, y);
+	int back = 1;
+	uint8_t test[9] = {(x>>24)&0xff,(x>>16)&0xff,(x>>8)&0xff,(x>>0)&0xff,
+		(y>>24)&0xff, (y>>16)&0xff, (y>>8)&0xff, (y>>0)&0xff, back};
+
+	if(send(355, 9, test))
+	{
+		printf("Send error\n");
+	}
+
+	if(vacuum_cur_i == 1)
+	{
+		vacuum_on();
+	}
+
+	vacuum_cur_i++;
+
+	if(vacuum_cur_i == vacuum_path_n)
+	{
+		vacuum_cur_i = 0;
+		vacuum_run = 0;
+		vacuum_off();
+	}
+}
+
+
+void run_vacuum_area_bubblegum_plusplus()
+{
+	if(!vacuum_run)
+		return;
+
+	if(vacuum_cur_i < 1)
+		return;
+
+	int x = vacuum_path_x[vacuum_cur_i-1];
+	int y = vacuum_path_y[vacuum_cur_i-1];
+
+	timer++;
+
+//	if(fabs(cur_x-(double)x) < 500.0 && fabs(cur_y-(double)y) < 500.0)
+//	{
+//		timer += 10;
+//	}
+
+	if(timer > 1000)
+	{
+		printf("run_vacuum_area() called by watchdog\n");
+		run_vacuum_area();
+	}
+
+}
+
+
+void start_vacuuming_area()
+{
+	timer = 0;
+	if(vacuum_path_n < 2)
+		return;
+
+	vacuum_run = 1;
+	vacuum_cur_i = 0;
+
+	run_vacuum_area(); // Call once; called when handling an manual move ack message.
+}
+
+
+void draw_area(sf::RenderWindow& win)
+{
+	float x1, y1, x2, y2;
+	if(area_point == 1)
+	{
+		x1 = (area_point_x[0]+origin_x)/mm_per_pixel;
+		y1 = (-1*area_point_y[0]+origin_y)/mm_per_pixel;
+		x2 = (click_x_mm+origin_x)/mm_per_pixel;
+		y2 = (-1*click_y_mm+origin_y)/mm_per_pixel;
+
+	}
+	else if(area_point > 1)
+	{
+		x1 = (area_point_x[0]+origin_x)/mm_per_pixel;
+		y1 = (-1*area_point_y[0]+origin_y)/mm_per_pixel;
+		x2 = (area_point_x[1]+origin_x)/mm_per_pixel;
+		y2 = (-1*area_point_y[1]+origin_y)/mm_per_pixel;
+	}
+
+	if(area_point > 0)
+	{
+		sf::RectangleShape rect(sf::Vector2f( sqrt(pow(x2-x1,2)+pow(y2-y1,2)), 4.0));
+		rect.setOrigin(0, 2.0);
+		rect.setPosition(x1, y1);
+		rect.setRotation(atan2(y2-y1,x2-x1)*180.0/M_PI);
+		rect.setFillColor(sf::Color(128,0,0,255));
+		win.draw(rect);
+	}
+
+	if(area_point == 3)
+	{
+		x1 = (area_point_x[2]+origin_x)/mm_per_pixel;
+		y1 = (-1*area_point_y[2]+origin_y)/mm_per_pixel;
+		x2 = (click_x_mm+origin_x)/mm_per_pixel;
+		y2 = (-1*click_y_mm+origin_y)/mm_per_pixel;
+
+		{
+			sf::RectangleShape rect(sf::Vector2f( sqrt(pow(x2-x1,2)+pow(y2-y1,2)), 4.0));
+			rect.setOrigin(0, 2.0);
+			rect.setPosition(x1, y1);
+			rect.setRotation(atan2(y2-y1,x2-x1)*180.0/M_PI);
+			rect.setFillColor(sf::Color(0,0,128,255));
+			win.draw(rect);
+		}
+
+	}
+
+	if(area_valid)
+	{
+		sf::ConvexShape shape;
+		shape.setFillColor(sf::Color(255,80,80,128));
+		shape.setPointCount(4);
+		shape.setPoint(0, sf::Vector2f((area_point_x[0]+origin_x)/mm_per_pixel, (-1*area_point_y[0]+origin_y)/mm_per_pixel));
+		shape.setPoint(1, sf::Vector2f((area_point_x[1]+origin_x)/mm_per_pixel, (-1*area_point_y[1]+origin_y)/mm_per_pixel));
+		shape.setPoint(2, sf::Vector2f((area_point_x[3]+origin_x)/mm_per_pixel, (-1*area_point_y[3]+origin_y)/mm_per_pixel));
+		shape.setPoint(3, sf::Vector2f((area_point_x[2]+origin_x)/mm_per_pixel, (-1*area_point_y[2]+origin_y)/mm_per_pixel));
+
+		shape.setPosition(0,0);
+		win.draw(shape);
+
+
+		for(int i=0; i<vacuum_path_n-1; i++)
+		{
+			x1 = (vacuum_path_x[i]+origin_x)/mm_per_pixel;
+			y1 = (-1*vacuum_path_y[i]+origin_y)/mm_per_pixel;
+			x2 = (vacuum_path_x[i+1]+origin_x)/mm_per_pixel;
+			y2 = (-1*vacuum_path_y[i+1]+origin_y)/mm_per_pixel;
+
+			sf::RectangleShape rect(sf::Vector2f( sqrt(pow(x2-x1,2)+pow(y2-y1,2)), 4.0));
+			rect.setOrigin(0, 2.0);
+			rect.setPosition(x1, y1);
+			rect.setRotation(atan2(y2-y1,x2-x1)*180.0/M_PI);
+			rect.setFillColor(sf::Color(128,0,0,255));
+			win.draw(rect);
+		}
+	}
+
+
+}
+
 
 int main(int argc, char** argv)
 {
@@ -1774,6 +2005,8 @@ int main(int argc, char** argv)
 	sf::Clock clock;
 	float last_time = 0.0;
 	int cnt = 0;
+
+
 	while(win.isOpen())
 	{
 		cnt++;
@@ -1920,6 +2153,7 @@ int main(int argc, char** argv)
 					else
 						statebut_pressed[i] = false;
 				}
+
 
 				int click_x = localPosition.x;
 				int click_y = localPosition.y;
@@ -2149,6 +2383,38 @@ int main(int argc, char** argv)
 
 							} break;
 
+
+							case MENU_AREA_POINT:
+							{
+								area_point = 0;
+								area_point_x[area_point] = point_x_mm;
+								area_point_y[area_point] = point_y_mm;
+								area_point = 1;
+								area_valid = 0;
+							} break;
+
+
+							case MENU_VACUUM_START:
+							{
+								if(area_valid)
+								{
+									start_vacuuming_area();
+								}
+								else
+								{
+									vacuum_on();
+								}
+							} break;
+
+							case MENU_VACUUM_STOP:
+							{
+								area_point = 0;
+								area_valid = 0;
+								vacuum_run = 0;
+								vacuum_off();
+
+							} break;
+
 							default: break;
 
 						}
@@ -2207,8 +2473,94 @@ int main(int argc, char** argv)
 				{
 					if(!ignore_click && click_on && abs(click_x-click_start_x) < 2 && abs(click_y-click_start_y) < 2 && (click_x < but_start_x))
 					{
-						if(!is_popup_enabled(&popup_menu))
-							enable_popup_menu(&popup_menu, click_x, click_y);
+						if(area_point == 0)
+						{
+							if(!is_popup_enabled(&popup_menu))
+								enable_popup_menu(&popup_menu, click_x, click_y);
+						}
+						else
+						{
+							assert(area_point < 4);
+							area_point_x[area_point] = click_x_mm;
+							area_point_y[area_point] = click_y_mm;
+							area_point++;
+							if(area_point == 4)
+							{
+								area_point = 0;
+								area_valid = 1;
+
+								double ang1 = atan2(area_point_y[1]-area_point_y[0], area_point_x[1]-area_point_x[0]);
+								double ang2 = atan2(area_point_y[3]-area_point_y[2], area_point_x[3]-area_point_x[2]);
+
+								double dang = ang1 - ang2;
+								//if(dang < -1.0*M_PI) dang += M_PI;
+								//else if(dang > 1.0*M_PI) dang -= M_PI;
+
+								printf("ang1 = %.3f   ang2 = %.3f   dang = %.3f\n", ang1, ang2, dang);
+								if(dang < -0.5*M_PI || dang > 0.5*M_PI)
+								{
+									printf("swapping area points 2 and 3\n");
+									double tmp;
+									tmp = area_point_x[2];
+									area_point_x[2] = area_point_x[3];
+									area_point_x[3] = tmp;
+									tmp = area_point_y[2];
+									area_point_y[2] = area_point_y[3];
+									area_point_y[3] = tmp;
+
+									ang2 = atan2(area_point_y[3]-area_point_y[2], area_point_x[3]-area_point_x[2]); // recalc
+								}
+
+								const double step = 800.0;
+
+								double len1 = sqrt(sq(area_point_y[1]-area_point_y[0]) + sq(area_point_x[1]-area_point_x[0]));
+								double len2 = sqrt(sq(area_point_y[3]-area_point_y[2]) + sq(area_point_x[3]-area_point_x[2]));
+								
+								// A is the longer, b the shorter
+								double startx_a, starty_a, startx_b, starty_b, step_a, step_b, ang_a, ang_b;
+								int n;
+								if(len1 > len2)
+								{
+									startx_a = area_point_x[0];
+									starty_a = area_point_y[0];
+									ang_a = ang1;
+									step_a = step;
+									startx_b = area_point_x[2];
+									starty_b = area_point_y[2];
+									step_b = step * len2/len1;
+									ang_b = ang2;
+
+									n = len1/step;
+								}
+								else
+								{
+									startx_a = area_point_x[2];
+									starty_a = area_point_y[2];
+									ang_a = ang2;
+									step_a = step;
+									startx_b = area_point_x[0];
+									starty_b = area_point_y[0];
+									step_b = step * len1/len2;
+									ang_b = ang1;
+
+									n = len2/step;
+								}
+								n++;
+								printf("n = %d\n", n);
+
+
+								assert(n<1024);
+								for(int i = 0; i<n; i++)
+								{
+									vacuum_path_x[i*2] = startx_a + cos(ang_a)*(double)i*step_a;
+									vacuum_path_y[i*2] = starty_a + sin(ang_a)*(double)i*step_a;
+									vacuum_path_x[i*2+1] = startx_b + cos(ang_b)*(double)i*step_b;
+									vacuum_path_y[i*2+1] = starty_b + sin(ang_b)*(double)i*step_b;
+								}
+								vacuum_path_n = n*2;
+							}
+
+						}
 					}
 					click_on = false;
 					ignore_click = false;
@@ -2245,6 +2597,17 @@ int main(int argc, char** argv)
 			}
 			else y_pressed = false;
 
+
+			static bool l_pressed;
+			if(sf::Keyboard::isKeyPressed(sf::Keyboard::L))
+			{
+				if(!l_pressed)
+				{
+					go_charge_msg(0);
+					l_pressed = true;
+				}
+			}
+			else l_pressed = false;
 
 			if(sf::Keyboard::isKeyPressed(sf::Keyboard::PageUp))
 			{
@@ -2329,7 +2692,7 @@ int main(int argc, char** argv)
 			}} else f_pressed[10] = false;
 			if(sf::Keyboard::isKeyPressed(sf::Keyboard::F11)) { if(!f_pressed[11]) 
 			{
-				mode_msg(7); // conf charger
+				teach_charger_msg(0); // conf charger position - press when robot is in the charger
 				f_pressed[11] = true;
 			}} else f_pressed[11] = false;
 
@@ -2551,6 +2914,8 @@ int main(int argc, char** argv)
 		if(!popup_menu.enabled)
 			gui.draw_all_buttons();
 
+		draw_area(win);
+
 		win.display();
 
 		mutex_gl.unlock();
@@ -2566,6 +2931,8 @@ int main(int argc, char** argv)
 			sonar[sonar_wr].c = 0;
 			sonar_wr++; if(sonar_wr >= SONAR_POINTS) sonar_wr = 0;
 		}
+
+		run_vacuum_area_bubblegum_plusplus();
 
 	}
 
