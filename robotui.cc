@@ -1786,12 +1786,12 @@ void run_vacuum_area_bubblegum_plusplus()
 	int x = vacuum_path_x[vacuum_cur_i-1];
 	int y = vacuum_path_y[vacuum_cur_i-1];
 
-	timer++;
+	timer+=2;
 
-//	if(fabs(cur_x-(double)x) < 500.0 && fabs(cur_y-(double)y) < 500.0)
-//	{
-//		timer += 10;
-//	}
+	if(fabs(cur_x-(double)x) < 500.0 && fabs(cur_y-(double)y) < 500.0)
+	{
+		timer--;
+	}
 
 	if(timer > 1000)
 	{
