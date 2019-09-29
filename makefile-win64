@@ -1,0 +1,71 @@
+# Makefile for cross-compiling for 64-bit Windows, on linux.
+
+CC = x86_64-w64-mingw32-g++-posix
+LD = x86_64-w64-mingw32-g++-posix
+
+SFML_INCLUDE = /home/hrst/SFML-2.5.1-win64/include
+SFML_LIB     = /home/hrst/SFML-2.5.1-win64/lib
+SFML_BIN     = /home/hrst/SFML-2.5.1-win64/bin
+TGUI_INCLUDE = /home/hrst/tgui-0.8.5-win64/include
+TGUI_LIB     = /home/hrst/tgui-0.8.5-win64/lib
+TGUI_BIN     = /home/hrst/tgui-0.8.5-win64/bin
+
+# GLEW needs to be manually compiled, as well (no binary distribution for mingw available)
+# only the file libglew32.dll.a contains the correct symbols, so use: -lglew32.dll  instead of -lGLEW
+GLEW_INCLUDE = /home/hrst/glew-win64/include
+GLEW_LIB     = /home/hrst/glew-win64/lib
+GLEW_BIN     = /home/hrst/glew-win64/lib
+
+# glm is a header-only library
+GLM_INCLUDE = /home/hrst/glm/
+
+LIBC_DLLS    = /usr/lib/gcc/x86_64-w64-mingw32/7.3-posix
+OTHER_LIB_DLLS = /usr/x86_64-w64-mingw32/lib/
+LIBZ_DLL     = /home/hrst/Downloads/zlib1.dll
+
+
+CXXFLAGS = -fpermissive -Wall -Wno-narrowing -Wno-write-strings -O2 -I$(SFML_INCLUDE) -I$(TGUI_INCLUDE) -I$(GLEW_INCLUDE) -I$(GLM_INCLUDE)
+LDFLAGS = -L$(SFML_LIB) -L$(TGUI_LIB) -L$(GLEW_LIB)
+# -static-libstdc++
+#-std=c++14
+#-std=c++98
+
+ROBOTUI_OBJ = robotui.obj client_memdisk.obj sfml_gui.obj
+
+all: robotui.exe
+
+$(ROBOTUI_OBJ): %.obj: %.cc
+	$(CC) -c $(CXXFLAGS) $< -o $@
+
+voxmap.obj:
+	x86_64-w64-mingw32-gcc-posix -c ../robotsoft/voxmap.c -O2 -Wall -o ./voxmap.obj
+
+voxmap_memdisk.obj:
+	x86_64-w64-mingw32-gcc-posix -c ../robotsoft/voxmap_memdisk.c -O2 -Wall -o ./voxmap_memdisk.obj
+
+robotui.exe: $(ROBOTUI_OBJ) voxmap.obj voxmap_memdisk.obj
+	$(LD) $(LDFLAGS) -o robotui.exe $(ROBOTUI_OBJ) voxmap.obj voxmap_memdisk.obj -lm -ltgui -lsfml-network -lsfml-graphics -lsfml-window -lsfml-system -lopengl32 -lglew32.dll -lz
+
+
+# C++ libraries, such as SFML and TGUI, do not provide robust ABI, even within the same version numbers.
+# For example, there are at least 3 different C++ string ABIs for linux during the last decade, and at least three different exception models for Windows;
+# exact same compiler version is needed to build the libraries and the application. Hence, shared libraries in /usr/local/lib or similar
+# do not work, except by luck, because shared libraries with exact same version numbers may not be binary compatible.
+# (This is why C++ libraries are very rare, indeed, and most libraries are written in C.)
+# On Windows target, we just simply copy the correct libraries with the program. No special startup script needed, since the
+# Windows application binary loader looks first in the current directory.
+
+release: robotui.exe
+#	mkdir release-win64
+#	rm ./release-win64/*
+	cp robotui.exe vertex_shader.glsl fragment_shader.glsl arial.ttf ./release-win64/
+	cp $(SFML_BIN)/*.dll ./release-win64/
+	cp $(TGUI_BIN)/*.dll ./release-win64/
+	cp $(LIBC_DLLS)/libgcc_s_seh-1.dll $(LIBC_DLLS)/libstdc++-6.dll ./release-win64/
+	cp $(GLEW_BIN)/glew32.dll ./release-win64/
+	cp $(LIBZ_DLL) ./release-win64/
+	cp $(OTHER_LIB_DLLS)/libwinpthread-1.dll ./release-win64/
+
+clean:
+	rm *.obj
+	rm robotui.exe

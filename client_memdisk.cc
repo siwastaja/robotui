@@ -877,15 +877,20 @@ void init_opengl(sf::RenderWindow& win)
 
 
 	glewInit();
+
+
 	if(shader.loadFromFile("vertex_shader.glsl", "fragment_shader.glsl") == false)
+	{
+		printf("Failed to load shaders. Please reinstall the files.\n");
 		abort();
+	}
+
 
 	glEnable(GL_CULL_FACE);
 	glCullFace(GL_BACK);
 	glEnable(GL_DEPTH_TEST);
 	glDepthMask(GL_TRUE);
 	glClearDepth(1.0);
-
 
 	glEnable(GL_PROGRAM_POINT_SIZE);
 	glPointSize(4.0);

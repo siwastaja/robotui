@@ -26,18 +26,19 @@
 
 
 #include <stdint.h>
-#include <unistd.h>
-#include <fcntl.h>
-#include <sys/select.h>
-#include <sys/ioctl.h>
-#include <sys/wait.h>
-#include <errno.h>
+//#include <unistd.h>
+//#include <fcntl.h>
+//#include <sys/select.h>
+//#include <sys/ioctl.h>
+//#include <sys/wait.h>
 #include <cstdio>
 #include <cmath>
 #include <cstring>
 #include <SFML/Graphics.hpp>
 #include <SFML/Network.hpp>
 #include <SFML/OpenGL.hpp>
+#include <TGUI/TGUI.hpp>
+#include <iostream>
 
 #define DEFINE_API_VARIABLES
 #include "../robotsoft/api_board_to_soft.h"
@@ -70,6 +71,7 @@ bool view_3d = false;
 bool show_realtime_pc = true;
 bool show_free = false;
 
+#define usleep(us_) do{sf::sleep(sf::microseconds(us_));}while(0)
 
 char status_text[2000];
 
@@ -1529,7 +1531,6 @@ popup_menu_t popup_menu =
 	}	
 };
 
-
 const int x_margin = 8;
 const int y_margin = 8;
 
@@ -1898,6 +1899,42 @@ void draw_area(sf::RenderWindow& win)
 }
 
 
+void login(tgui::EditBox::Ptr username, tgui::EditBox::Ptr password)
+{
+    std::cout << "Username: " << username->getText().toAnsiString() << std::endl;
+    std::cout << "Password: " << password->getText().toAnsiString() << std::endl;
+}
+
+void loadWidgets( tgui::Gui& gui )
+{
+    // Create the username edit box
+    // Similar to the picture, we set a relative position and size
+    // In case it isn't obvious, the default text is the text that is displayed when the edit box is empty
+    auto editBoxUsername = tgui::EditBox::create();
+    editBoxUsername->setSize({"66.67%", "12.5%"});
+    editBoxUsername->setPosition({"16.67%", "16.67%"});
+    editBoxUsername->setDefaultText("Username");
+    gui.add(editBoxUsername);
+
+    // Create the password edit box
+    // We copy the previous edit box here and keep the same size
+    auto editBoxPassword = tgui::EditBox::copy(editBoxUsername);
+    editBoxPassword->setPosition({"16.67%", "41.6%"});
+    editBoxPassword->setPasswordCharacter('*');
+    editBoxPassword->setDefaultText("Password");
+    gui.add(editBoxPassword);
+
+    // Create the login button
+    auto button = tgui::Button::create("Login");
+    button->setSize({"50%", "16.67%"});
+    button->setPosition({"25%", "70%"});
+    gui.add(button);
+
+    // Call the login function when the button is pressed and pass the edit boxes that we created as parameters
+    button->connect("pressed", login, editBoxUsername, editBoxPassword);
+}
+
+
 int main(int argc, char** argv)
 {
 	bool f_pressed[13] = {false};
@@ -1953,13 +1990,12 @@ int main(int argc, char** argv)
 	printf("GPU: Vendor:   %s\n", glGetString(GL_VENDOR));
 
 	init_memdisk();
+
 	build_fullmap();
 
 	init_opengl(win);
 
-
 	win.setActive(false);
-
 
 	win.setFramerateLimit(30);
 
@@ -2009,6 +2045,20 @@ int main(int argc, char** argv)
 	int cnt = 0;
 
 
+	tgui::Gui guit(win);
+
+	try
+	{
+		loadWidgets(guit);
+	}
+	catch (const tgui::Exception& e)
+	{
+		std::cerr << "Failed to load TGUI widgets: " << e.what() << std::endl;
+		return 1;
+	}
+
+
+
 	while(win.isOpen())
 	{
 		cnt++;
@@ -2047,6 +2097,7 @@ int main(int argc, char** argv)
 
 				sf::FloatRect visibleArea(0, 0, screen_x, screen_y);
 				win.setView(sf::View(visibleArea));
+				guit.setView(win.getView());
 
 				win.popGLStates();
 				win.setActive(true);
@@ -2062,6 +2113,10 @@ int main(int argc, char** argv)
 
 			if(event.type == sf::Event::GainedFocus)
 				focus = 1;
+
+
+			guit.handleEvent(event);
+
 
 		}
 
@@ -2917,6 +2972,9 @@ int main(int argc, char** argv)
 			gui.draw_all_buttons();
 
 		draw_area(win);
+
+
+		guit.draw();
 
 		win.display();
 
