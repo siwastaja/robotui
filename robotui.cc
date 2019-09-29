@@ -1208,6 +1208,7 @@ void print_(void* m)
 }
 */
 
+void update_statevect_checkboxes();
 
 int parse_message(uint16_t id, uint32_t len)
 {
@@ -1379,6 +1380,7 @@ int parse_message(uint16_t id, uint32_t len)
 
 			memcpy(received_state_vect.table, rxbuf, STATE_VECT_LEN);
 			memcpy(state_vect_to_send.table, rxbuf, STATE_VECT_LEN);
+			update_statevect_checkboxes();
 		}
 		break;
 
@@ -1898,41 +1900,81 @@ void draw_area(sf::RenderWindow& win)
 
 }
 
+#define UI_STATE_VECT_LEN 8
 
-void login(tgui::EditBox::Ptr username, tgui::EditBox::Ptr password)
+#if UI_STATE_VECT_LEN > STATE_VECT_LEN
+#error UI_STATE_VECT_LEN must be same or smaller than STATE_VECT_LEN
+#endif
+
+tgui::CheckBox::Ptr statevect_checkboxes[UI_STATE_VECT_LEN];
+
+void modify_statevect(tgui::Widget::Ptr widget, const std::string& signalName)
 {
-    std::cout << "Username: " << username->getText().toAnsiString() << std::endl;
-    std::cout << "Password: " << password->getText().toAnsiString() << std::endl;
+	for(int i=0; i<UI_STATE_VECT_LEN; i++)
+	{
+		state_vect_to_send.table[i] = statevect_checkboxes[i]->isChecked()?1:0;
+	}
+	send(364, STATE_VECT_LEN, state_vect_to_send.table);
 }
 
-void loadWidgets( tgui::Gui& gui )
+void update_statevect_checkboxes()
 {
-    // Create the username edit box
-    // Similar to the picture, we set a relative position and size
-    // In case it isn't obvious, the default text is the text that is displayed when the edit box is empty
-    auto editBoxUsername = tgui::EditBox::create();
-    editBoxUsername->setSize({"66.67%", "12.5%"});
-    editBoxUsername->setPosition({"16.67%", "16.67%"});
-    editBoxUsername->setDefaultText("Username");
-    gui.add(editBoxUsername);
-
-    // Create the password edit box
-    // We copy the previous edit box here and keep the same size
-    auto editBoxPassword = tgui::EditBox::copy(editBoxUsername);
-    editBoxPassword->setPosition({"16.67%", "41.6%"});
-    editBoxPassword->setPasswordCharacter('*');
-    editBoxPassword->setDefaultText("Password");
-    gui.add(editBoxPassword);
-
-    // Create the login button
-    auto button = tgui::Button::create("Login");
-    button->setSize({"50%", "16.67%"});
-    button->setPosition({"25%", "70%"});
-    gui.add(button);
-
-    // Call the login function when the button is pressed and pass the edit boxes that we created as parameters
-    button->connect("pressed", login, editBoxUsername, editBoxPassword);
+	for(int i=0; i<UI_STATE_VECT_LEN; i++)
+	{
+		statevect_checkboxes[i]->setChecked(received_state_vect.table[i]);
+	}
 }
+
+void close_cwin(tgui::Widget::Ptr widget, const std::string& signalName)
+{
+	widget->setVisible(false);
+}
+
+// Not thread safe
+static inline char* o_ftoa_0(char* prefix, double f, char* suffix)
+{
+	static char buf[64];
+	snprintf(buf, 64, "%s%.0f%s", prefix, f, suffix);
+	return buf;
+}
+
+tgui::Slider::Ptr slider_speed;
+tgui::Slider::Ptr slider_angspeed;
+tgui::Slider::Ptr slider_linspeed_angerr;
+tgui::Slider::Ptr slider_pid_p;
+tgui::Slider::Ptr slider_pid_i;
+tgui::Slider::Ptr slider_pid_d;
+tgui::Slider::Ptr slider_pid_imax;
+tgui::CheckBox::Ptr checkbox_pid_thresholded;
+tgui::Slider::Ptr slider_currlim;
+
+void apply_motor_params()
+{
+	s2b_inject_motcon_config_t c;
+	memset((void*)&c, 0, sizeof(c));
+
+	c.speed = slider_speed->getValue();
+	c.angspeed = slider_angspeed->getValue();
+	c.linspeed_angerr = slider_linspeed_angerr->getValue();
+	c.pid_p = slider_pid_p->getValue();
+	c.pid_i = slider_pid_i->getValue();
+	c.pid_d = slider_pid_d->getValue();
+	c.pid_i_max = slider_pid_imax->getValue();
+	c.use_threshold = (checkbox_pid_thresholded->isChecked())?1:0;
+	c.currlim = slider_currlim->getValue();
+
+	send(CMD_INJECT_MOTCON_CONFIG, sizeof(c), (uint8_t*)&c);
+
+}
+
+void emerg_stop()
+{
+	s2b_stop_movement_t c;
+	memset((void*)&c, 0, sizeof(c));
+
+	send(CMD_STOP_MOVEMENT, sizeof(c), (uint8_t*)&c);
+}
+
 
 
 int main(int argc, char** argv)
@@ -1981,7 +2023,7 @@ int main(int argc, char** argv)
 	sets.majorVersion = 3;
 	sets.minorVersion = 0;
 	sets.depthBits = 24;
-	sf::RenderWindow win(sf::VideoMode(screen_x,screen_y), "PULUROBOT SLAM", sf::Style::Default, sets);
+	sf::RenderWindow win(sf::VideoMode(screen_x,screen_y), "PULUROBOT USER INTERFACE", sf::Style::Default, sets);
 
 	sf::ContextSettings settings = win.getSettings();
 	printf("OpenGL version: %d.%d\n", settings.majorVersion,settings.minorVersion);
@@ -2010,18 +2052,267 @@ int main(int argc, char** argv)
 	decors[INFO_STATE_CHARGING].loadFromFile("decoration/charging.png");
 	decors[INFO_STATE_DAIJUING].loadFromFile("decoration/party.png");
 
+	tgui::Gui gui(win);
 	
-	sfml_gui gui(win, arial);
-
 	#define BUT_WIDTH 220
 	int but_start_x = screen_x-BUT_WIDTH;
-	int but_state_vect[STATE_VECT_LEN];
 
-	for(int i=0; i<STATE_VECT_LEN; i++)
+
+	for(int i=0; i<UI_STATE_VECT_LEN; i++)
 	{
-		but_state_vect[i] = gui.add_button(but_start_x, 50 + i*29, 190, 22, state_vect_names[i], DEF_BUT_COL, /*font size:*/12, -1, DEF_BUT_COL_PRESSED, SYM_STOP);
+		statevect_checkboxes[i] = tgui::CheckBox::create();
+		//checkbox->setRenderer(theme.getRenderer("CheckBox"));
+		statevect_checkboxes[i]->setPosition("parent.size - 220", 50 + i*32);
+		statevect_checkboxes[i]->setText(state_vect_names[i]);
+		statevect_checkboxes[i]->setSize(25, 25);
+		gui.add(statevect_checkboxes[i]);
+		statevect_checkboxes[i]->connect("checked", modify_statevect);
+		statevect_checkboxes[i]->connect("unchecked", modify_statevect);
+
 		state_vect_to_send.table[i] = received_state_vect.table[i] = 0;
 	}
+
+	auto stop_button = tgui::Button::create("STOP [ESC]");
+	stop_button->setSize(120, 50);
+	stop_button->setTextSize(18);
+	stop_button->setPosition(5, 5);
+	stop_button->connect("pressed", emerg_stop);
+	gui.add(stop_button);
+
+
+	auto motor_params_cwin = tgui::ChildWindow::create();
+	motor_params_cwin->setTitle("Motor control parameters");
+	motor_params_cwin->setSize(560,460);
+	motor_params_cwin->setPosition(10,10);
+	motor_params_cwin->setVisible(false);
+	gui.add(motor_params_cwin);
+	motor_params_cwin->connect("closed", close_cwin);
+
+	auto button = tgui::Button::create("Motor params...");
+	button->setSize(200, 25);
+	button->setPosition("parent.size - 220", 50 + (UI_STATE_VECT_LEN+1)*32);
+	button->connect("pressed", [&](){ motor_params_cwin->setVisible(motor_params_cwin->isVisible()?false:true); });
+	gui.add(button);
+
+	auto label = tgui::Label::create();
+	label->setText("Linear speed");
+	label->setPosition(10,10);
+	label->setTextSize(12);
+	motor_params_cwin->add(label);
+
+	auto label_speed = tgui::Label::create();
+	label_speed->setPosition(410,10);
+	label_speed->setTextSize(14);
+	motor_params_cwin->add(label_speed);
+
+	slider_speed = tgui::Slider::create();
+	slider_speed->setPosition(200,10);
+	slider_speed->setSize(200, 14);
+	slider_speed->setMinimum(10.0);
+	slider_speed->setMaximum(150.0);
+	slider_speed->setValue(30.0);
+	slider_speed->setStep(1.0);
+	motor_params_cwin->add(slider_speed);
+	label_speed->setText(o_ftoa_0("", slider_speed->getValue(), " units"));
+	slider_speed->connect("ValueChanged", [&](){ label_speed->setText(o_ftoa_0("", slider_speed->getValue(), " units")); });
+
+
+	label = tgui::Label::create();
+	label->setText("Angular speed");
+	label->setPosition(10,35);
+	label->setTextSize(12);
+	motor_params_cwin->add(label);
+
+
+	auto label_angspeed = tgui::Label::create();
+	label_angspeed->setPosition(410,35);
+	label_angspeed->setTextSize(14);
+	motor_params_cwin->add(label_angspeed);
+
+	slider_angspeed = tgui::Slider::create();
+	slider_angspeed->setPosition(200,35);
+	slider_angspeed->setSize(200, 14);
+	slider_angspeed->setMinimum(5.0);
+	slider_angspeed->setMaximum(30.0);
+	slider_angspeed->setValue(13.0);
+	slider_angspeed->setStep(1.0);
+	motor_params_cwin->add(slider_angspeed);
+	label_angspeed->setText(o_ftoa_0("", slider_angspeed->getValue(), " units"));
+	slider_angspeed->connect("ValueChanged", [&](){ label_angspeed->setText(o_ftoa_0("", slider_angspeed->getValue(), " units")); });
+
+
+	label = tgui::Label::create();
+	label->setText("Lin speed ~ ang err");
+	label->setPosition(10,60);
+	label->setTextSize(12);
+	motor_params_cwin->add(label);
+
+	label = tgui::Label::create();
+	label->setText("Small value -> reduce linear speed more, in presence of angular error (speed may oscillate)\nLarge value -> allow going fast regardless of angular error (path may deviate sideways)");
+	label->setPosition(10,80);
+	label->setTextSize(10);
+	motor_params_cwin->add(label);
+
+
+	auto label_linspeed_angerr = tgui::Label::create();
+	label_linspeed_angerr->setPosition(410,60);
+	label_linspeed_angerr->setTextSize(14);
+	motor_params_cwin->add(label_linspeed_angerr);
+
+	slider_linspeed_angerr = tgui::Slider::create();
+	slider_linspeed_angerr->setPosition(200,60);
+	slider_linspeed_angerr->setSize(200, 14);
+	slider_linspeed_angerr->setMinimum(30.0);
+	slider_linspeed_angerr->setMaximum(500.0);
+	slider_linspeed_angerr->setValue(180.0);
+	slider_linspeed_angerr->setStep(1.0);
+	motor_params_cwin->add(slider_linspeed_angerr);
+	label_linspeed_angerr->setText(o_ftoa_0("", slider_linspeed_angerr->getValue(), " units"));
+	slider_linspeed_angerr->connect("ValueChanged", [&](){ label_linspeed_angerr->setText(o_ftoa_0("", slider_linspeed_angerr->getValue(), " units")); });
+
+
+	label = tgui::Label::create();
+	label->setText("BLDC motor position feedback loop parameters");
+	label->setPosition(10,135);
+	label->setTextSize(12);
+	motor_params_cwin->add(label);
+
+
+	label = tgui::Label::create();
+	label->setText("P (current pos err * P -> mot pwr)");
+	label->setPosition(10,160);
+	label->setTextSize(10);
+	motor_params_cwin->add(label);
+
+	auto label_pid_p = tgui::Label::create();
+	label_pid_p->setPosition(410,160);
+	label_pid_p->setTextSize(14);
+	motor_params_cwin->add(label_pid_p);
+
+	slider_pid_p = tgui::Slider::create();
+	slider_pid_p->setPosition(200,160);
+	slider_pid_p->setSize(200, 14);
+	slider_pid_p->setMinimum(0.0);
+	slider_pid_p->setMaximum(400.0);
+	slider_pid_p->setValue(60.0);
+	slider_pid_p->setStep(1.0);
+	motor_params_cwin->add(slider_pid_p);
+	label_pid_p->setText(o_ftoa_0("", slider_pid_p->getValue(), " units"));
+	slider_pid_p->connect("ValueChanged", [&](){ label_pid_p->setText(o_ftoa_0("", slider_pid_p->getValue(), " units")); });
+
+
+
+	label = tgui::Label::create();
+	label->setText("I (pos err intergral * I -> mot pwr)");
+	label->setPosition(10,185);
+	label->setTextSize(10);
+	motor_params_cwin->add(label);
+
+	auto label_pid_i = tgui::Label::create();
+	label_pid_i->setPosition(410,185);
+	label_pid_i->setTextSize(14);
+	motor_params_cwin->add(label_pid_i);
+
+	slider_pid_i = tgui::Slider::create();
+	slider_pid_i->setPosition(200,185);
+	slider_pid_i->setSize(200, 14);
+	slider_pid_i->setMinimum(0.0);
+	slider_pid_i->setMaximum(400.0);
+	slider_pid_i->setValue(250.0);
+	slider_pid_i->setStep(1.0);
+	motor_params_cwin->add(slider_pid_i);
+	label_pid_i->setText(o_ftoa_0("", slider_pid_i->getValue(), " units"));
+	slider_pid_i->connect("ValueChanged", [&](){ label_pid_i->setText(o_ftoa_0("", slider_pid_i->getValue(), " units")); });
+
+
+
+
+	label = tgui::Label::create();
+	label->setText("D (pos err deriv * D -> mot pwr)");
+	label->setPosition(10,210);
+	label->setTextSize(10);
+	motor_params_cwin->add(label);
+
+	auto label_pid_d = tgui::Label::create();
+	label_pid_d->setPosition(410,210);
+	label_pid_d->setTextSize(14);
+	motor_params_cwin->add(label_pid_d);
+
+	slider_pid_d = tgui::Slider::create();
+	slider_pid_d->setPosition(200,210);
+	slider_pid_d->setSize(200, 14);
+	slider_pid_d->setMinimum(0.0);
+	slider_pid_d->setMaximum(400.0);
+	slider_pid_d->setValue(0.0);
+	slider_pid_d->setStep(1.0);
+	motor_params_cwin->add(slider_pid_d);
+	label_pid_d->setText(o_ftoa_0("", slider_pid_d->getValue(), " units"));
+	slider_pid_d->connect("ValueChanged", [&](){ label_pid_d->setText(o_ftoa_0("", slider_pid_d->getValue(), " units")); });
+
+
+	label = tgui::Label::create();
+	label->setText("Imax (integrator saturation)");
+	label->setPosition(10,235);
+	label->setTextSize(10);
+	motor_params_cwin->add(label);
+
+	auto label_pid_imax = tgui::Label::create();
+	label_pid_imax->setPosition(410,235);
+	label_pid_imax->setTextSize(14);
+	motor_params_cwin->add(label_pid_imax);
+
+	slider_pid_imax = tgui::Slider::create();
+	slider_pid_imax->setPosition(200,235);
+	slider_pid_imax->setSize(200, 14);
+	slider_pid_imax->setMinimum(0);
+	slider_pid_imax->setMaximum(10000*256);
+	slider_pid_imax->setValue(3000*256);
+	slider_pid_imax->setStep(8192);
+	motor_params_cwin->add(slider_pid_imax);
+	label_pid_imax->setText(o_ftoa_0("", slider_pid_imax->getValue(), " units"));
+	slider_pid_imax->connect("ValueChanged", [&](){ label_pid_imax->setText(o_ftoa_0("", slider_pid_imax->getValue(), " units")); });
+
+
+
+	checkbox_pid_thresholded = tgui::CheckBox::create();
+	checkbox_pid_thresholded->setPosition(200, 260);
+	checkbox_pid_thresholded->setText("Thresholded Integral Mode");
+	checkbox_pid_thresholded->setTextSize(12);
+	checkbox_pid_thresholded->setSize(20, 20);
+	checkbox_pid_thresholded->setChecked(true);
+	motor_params_cwin->add(checkbox_pid_thresholded);
+
+
+	label = tgui::Label::create();
+	label->setText("Motor current limit");
+	label->setPosition(10,300);
+	label->setTextSize(12);
+	motor_params_cwin->add(label);
+
+	auto label_currlim = tgui::Label::create();
+	label_currlim->setPosition(410,300);
+	label_currlim->setTextSize(14);
+	motor_params_cwin->add(label_currlim);
+
+	slider_currlim = tgui::Slider::create();
+	slider_currlim->setPosition(200,300);
+	slider_currlim->setSize(200, 14);
+	slider_currlim->setMinimum(1000);
+	slider_currlim->setMaximum(25000);
+	slider_currlim->setValue(22000);
+	slider_currlim->setStep(250.0);
+	motor_params_cwin->add(slider_currlim);
+	label_currlim->setText(o_ftoa_0("", slider_currlim->getValue(), " mA"));
+	slider_currlim->connect("ValueChanged", [&](){ label_currlim->setText(o_ftoa_0("", slider_currlim->getValue(), " mA")); });
+
+
+	auto motor_params_apply_button = tgui::Button::create("Apply");
+	motor_params_apply_button->setSize(180, 40);
+	motor_params_apply_button->setTextSize(20);
+	motor_params_apply_button->setPosition(200, 360);
+	motor_params_apply_button->connect("pressed", apply_motor_params);
+	motor_params_cwin->add(motor_params_apply_button);
+
 
 	bool click_on = false;
 	bool ignore_click = false;
@@ -2045,37 +2336,24 @@ int main(int argc, char** argv)
 	int cnt = 0;
 
 
-	tgui::Gui guit(win);
-
-	try
-	{
-		loadWidgets(guit);
-	}
-	catch (const tgui::Exception& e)
-	{
-		std::cerr << "Failed to load TGUI widgets: " << e.what() << std::endl;
-		return 1;
-	}
-
 
 
 	while(win.isOpen())
 	{
+
 		cnt++;
 
-
 		state_is_unsynchronized = 0;
-		for(int i=0; i<STATE_VECT_LEN; i++)
+
+		for(int i=0; i<UI_STATE_VECT_LEN; i++)
 		{
-			gui.buttons[but_state_vect[i]]->pressed = state_vect_to_send.table[i];
 			if(received_state_vect.table[i] != state_vect_to_send.table[i])
 			{
-				gui.buttons[but_state_vect[i]]->symbol = SYM_PLAY;
 				state_is_unsynchronized = 1;
 			}
 			else
 			{
-				gui.buttons[but_state_vect[i]]->symbol = SYM_STOP;
+
 			}
 		}
 
@@ -2090,14 +2368,10 @@ int main(int argc, char** argv)
 				screen_x = size.x;
 				screen_y = size.y;
 				but_start_x = screen_x-BUT_WIDTH;
-				for(int i=0; i<STATE_VECT_LEN; i++)
-				{
-					gui.buttons[but_state_vect[i]]->x = but_start_x;
-				}
 
 				sf::FloatRect visibleArea(0, 0, screen_x, screen_y);
 				win.setView(sf::View(visibleArea));
-				guit.setView(win.getView());
+				gui.setView(win.getView());
 
 				win.popGLStates();
 				win.setActive(true);
@@ -2115,7 +2389,7 @@ int main(int argc, char** argv)
 				focus = 1;
 
 
-			guit.handleEvent(event);
+			gui.handleEvent(event);
 
 
 		}
@@ -2190,27 +2464,14 @@ int main(int argc, char** argv)
 		{
 			sf::Vector2i localPosition = sf::Mouse::getPosition(win);
 
-
-			if(localPosition.x > 2 && localPosition.x < screen_x-2 && localPosition.y > 2 && localPosition.y < screen_y-2)
+			if((motor_params_cwin->mouseOnWidget(sf::Vector2f{localPosition.x, localPosition.y}) && motor_params_cwin->isVisible()) ||
+			   (stop_button->mouseOnWidget(sf::Vector2f{localPosition.x, localPosition.y})))
 			{
-				int but = gui.check_button_status();
-				if(but>-1) state_button_pressed = true;
-				static bool statebut_pressed[STATE_VECT_LEN];
-				for(int i=0; i<STATE_VECT_LEN; i++)
-				{
-					if(but == but_state_vect[i])
-					{
-						if(!statebut_pressed[i])
-						{
-							statebut_pressed[i] = true;
-							state_vect_to_send.table[i] = received_state_vect.table[i]?0:1;
-							send(364, STATE_VECT_LEN, state_vect_to_send.table);
-						}				
-					}
-					else
-						statebut_pressed[i] = false;
-				}
-
+				// Mouse over enabled widgets
+				// ...
+			}
+			else if(localPosition.x > 2 && localPosition.x < screen_x-BUT_WIDTH-2 && localPosition.y > 2 && localPosition.y < screen_y-2)
+			{
 
 				int click_x = localPosition.x;
 				int click_y = localPosition.y;
@@ -2625,6 +2886,21 @@ int main(int argc, char** argv)
 				}
 			}
 
+			static int ignore_esc;
+			if(sf::Keyboard::isKeyPressed(sf::Keyboard::Escape))
+			{
+				if(ignore_esc == 0)
+					emerg_stop();
+
+				ignore_esc++;
+				if(ignore_esc > 10)
+					ignore_esc = 0;
+			}
+			else
+			{
+				ignore_esc = 0;
+			}
+
 			static bool t_pressed;
 			if(sf::Keyboard::isKeyPressed(sf::Keyboard::T))
 			{
@@ -2968,13 +3244,11 @@ int main(int argc, char** argv)
 
 		draw_popup_menu(win, &popup_menu);
 
-		if(!popup_menu.enabled)
-			gui.draw_all_buttons();
 
 		draw_area(win);
 
 
-		guit.draw();
+		gui.draw();
 
 		win.display();
 

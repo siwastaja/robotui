@@ -30,7 +30,7 @@ LDFLAGS = -L$(SFML_LIB) -L$(TGUI_LIB) -L$(GLEW_LIB)
 #-std=c++14
 #-std=c++98
 
-ROBOTUI_OBJ = robotui.obj client_memdisk.obj sfml_gui.obj
+ROBOTUI_OBJ = robotui.obj client_memdisk.obj
 
 all: robotui.exe
 

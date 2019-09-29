@@ -12,7 +12,7 @@ LDFLAGS = -L$(SFML_LIB) -L$(TGUI_LIB)
 #-std=c++98
 #-D_GLIBCXX_USE_CXX11_ABI=0
 
-ROBOTUI_OBJ = robotui.o client_memdisk.o sfml_gui.o
+ROBOTUI_OBJ = robotui.o client_memdisk.o
 
 all: robotui
 
