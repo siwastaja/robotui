@@ -1378,6 +1378,13 @@ int parse_message(uint16_t id, uint32_t len)
 				break;
 			}
 
+			printf("State vect: ");
+			for(int i=0; i<len; i++)
+			{
+				printf("%02x ", rxbuf[i]);
+			}
+			printf("\n");
+
 			memcpy(received_state_vect.table, rxbuf, STATE_VECT_LEN);
 			memcpy(state_vect_to_send.table, rxbuf, STATE_VECT_LEN);
 			update_statevect_checkboxes();
@@ -1908,13 +1915,32 @@ void draw_area(sf::RenderWindow& win)
 
 tgui::CheckBox::Ptr statevect_checkboxes[UI_STATE_VECT_LEN];
 
+// Horrible UI kludge follows:
+// tgui gives "checked" or "unchecked" signals whenever the state changes, including just
+// updating the state from the code (not by the user).
+// We need to call modify_statevect when the _user_ presses the checkboxes.
+// But if we look at the "clicked" signal, it comes too early, before the isChecked()
+// changes. So we need to first handle "clicked", then enable modify_statevect function right
+// after we get the checked/unchecked signal. This creates a possibly rare corner case
+// when the state vector is changed by input data parsing right in the middle of the user clicking it.
+
+static bool en_modify_statevect = false;
+void enable_modify_statevect(tgui::Widget::Ptr widget, const std::string& signalName)
+{
+	en_modify_statevect = true;
+}
+
 void modify_statevect(tgui::Widget::Ptr widget, const std::string& signalName)
 {
-	for(int i=0; i<UI_STATE_VECT_LEN; i++)
+	if(en_modify_statevect)
 	{
-		state_vect_to_send.table[i] = statevect_checkboxes[i]->isChecked()?1:0;
+		en_modify_statevect = false;
+		for(int i=0; i<UI_STATE_VECT_LEN; i++)
+		{
+			state_vect_to_send.table[i] = statevect_checkboxes[i]->isChecked()?1:0;
+		}
+		send(364, STATE_VECT_LEN, state_vect_to_send.table);
 	}
-	send(364, STATE_VECT_LEN, state_vect_to_send.table);
 }
 
 void update_statevect_checkboxes()
@@ -2003,13 +2029,13 @@ int main(int argc, char** argv)
 		serv_ip = argv[1];
 		serv_port = atoi(argv[2]);
 
-		tcpsock.setBlocking(false);
 		printf("Connecting...\n");
-		while(tcpsock.connect(serv_ip, serv_port) != sf::Socket::Done)
+		tcpsock.setBlocking(true);
+		if(tcpsock.connect(serv_ip, serv_port) != sf::Socket::Done)
 		{
-			usleep(1000);
-			//TODO: timeout
+			printf("Error connecting.\n");
 		}
+		tcpsock.setBlocking(false);
 	}
 
 	if (!arial.loadFromFile("arial.ttf"))
@@ -2067,8 +2093,12 @@ int main(int argc, char** argv)
 		statevect_checkboxes[i]->setText(state_vect_names[i]);
 		statevect_checkboxes[i]->setSize(25, 25);
 		gui.add(statevect_checkboxes[i]);
+
+		// The following cause the states to flicker, because receiving and setting checkboxes causes the modification of statevect:
 		statevect_checkboxes[i]->connect("checked", modify_statevect);
 		statevect_checkboxes[i]->connect("unchecked", modify_statevect);
+
+		statevect_checkboxes[i]->connect("clicked", enable_modify_statevect);
 
 		state_vect_to_send.table[i] = received_state_vect.table[i] = 0;
 	}
@@ -2411,7 +2441,7 @@ int main(int argc, char** argv)
 
 					if( (ret = tcpsock.receive(&headerbuf[header_rx], 5-header_rx, received)) == sf::Socket::Done)
 					{
-					//	printf("head %d\n", received);
+						//printf("head %d\n", received);
 						if(received != 0)
 							something = 1;
 						header_rx += received;
@@ -2437,16 +2467,18 @@ int main(int argc, char** argv)
 					}
 
 					uint32_t total_rx = 0;
+
+					// This while loop causes the program to block after all:
 					while(total_rx < paylen)
 					{
-//						printf("pay\n");
+						//printf("pay\n");
 
 						sf::Socket::Status ret;
 						if( (ret = tcpsock.receive(&rxbuf[total_rx], paylen-total_rx, received)) == sf::Socket::Done)
 						{
-						//	printf("pay %d\n", received);
+							//printf("pay %d\n", received);
 							total_rx += received;
-				//			printf("    rx %d -> total %d\n", received, total_rx);
+							//printf("    rx %d -> total %d\n", received, total_rx);
 						}
 					}
 
