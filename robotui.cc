@@ -1950,6 +1950,7 @@ tgui::Slider::Ptr slider_currlim;
 
 void apply_motor_params()
 {
+/*
 	s2b_inject_motcon_config_t c;
 	memset((void*)&c, 0, sizeof(c));
 
@@ -1964,7 +1965,7 @@ void apply_motor_params()
 	c.currlim = slider_currlim->getValue();
 
 	send(CMD_INJECT_MOTCON_CONFIG, sizeof(c), (uint8_t*)&c);
-
+*/
 }
 
 void emerg_stop()
