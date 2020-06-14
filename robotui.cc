@@ -449,7 +449,7 @@ tof_raw_ambient8_t latest_tof_ambients[N_TOF_SENSORS];
 #define DATA_OVEREXP 65535
 
 float red_dist  = 0.0;
-float blue_dist = 20000.0;
+float blue_dist = 1000.0;
 //float red_dist  = 1600.0;
 //float blue_dist = 2200.0;
 
@@ -533,12 +533,14 @@ void draw_tof_dist(sf::RenderWindow& win, int xs, int ys, uint16_t* img, int x_o
 	win.draw(sprite);
 }
 
+
+
 void draw_tof_ampl(sf::RenderWindow& win, int xs, int ys, uint8_t* img, int x_on_screen, int y_on_screen, float scale, bool mir_x, bool mir_y, bool rotated)
 {
 	static uint8_t pix[TOF_XS*TOF_YS*4];
 
-	int yy = (mir_y?(ys-1):0);
 
+	int yy = (mir_y?(ys-1):0);
 	int inx = 0, iny = 0;
 	while(1)
 	{
@@ -553,6 +555,7 @@ void draw_tof_ampl(sf::RenderWindow& win, int xs, int ys, uint8_t* img, int x_on
 			pix[4*(yy*xs+xx)+1] = pixval;
 			pix[4*(yy*xs+xx)+2] = pixval;
 			pix[4*(yy*xs+xx)+3] = tof_raw_alpha;
+
 
 			inx++;
 			if(inx==xs)
@@ -1378,13 +1381,13 @@ int parse_message(uint16_t id, uint32_t len)
 				break;
 			}
 
-			printf("State vect: ");
+			/*printf("State vect: ");
 			for(int i=0; i<len; i++)
 			{
 				printf("%02x ", rxbuf[i]);
 			}
 			printf("\n");
-
+			*/
 			memcpy(received_state_vect.table, rxbuf, STATE_VECT_LEN);
 			memcpy(state_vect_to_send.table, rxbuf, STATE_VECT_LEN);
 			update_statevect_checkboxes();
@@ -2862,7 +2865,7 @@ int main(int argc, char** argv)
 									ang2 = atan2(area_point_y[3]-area_point_y[2], area_point_x[3]-area_point_x[2]); // recalc
 								}
 
-								const double step = 800.0;
+								const double step = 550.0;
 
 								double len1 = sqrt(sq(area_point_y[1]-area_point_y[0]) + sq(area_point_x[1]-area_point_x[0]));
 								double len2 = sqrt(sq(area_point_y[3]-area_point_y[2]) + sq(area_point_x[3]-area_point_x[2]));
