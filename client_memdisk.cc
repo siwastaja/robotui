@@ -25,6 +25,13 @@
 #include <errno.h>
 #include <dirent.h>
 
+// For opening 3D point clouds from disk in posix environment:
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <sys/mman.h>
+#include <fcntl.h>
+
+
 #include <GL/glew.h>
 #include <SFML/System.hpp>
 #include <SFML/Graphics.hpp>
@@ -1254,9 +1261,10 @@ static void render_piece(piece_3d_t* p)
 }
 
 #include "../robotsoft/small_cloud.h"
-#include "../robotsoft/slam_cloud.h" // for properly dimensioned realtime_cloud_t
+//#include "../robotsoft/slam_cloud.h" // for properly dimensioned realtime_cloud_t
 #include <zlib.h>
 
+// 3D point-cloud type: actual data lives in the GPU memory. Only store necessary metadata here. vao and vbo reference to the GPU memory.
 typedef struct
 {
 	// Reference coordinates in 3D World coordinates.
@@ -1272,7 +1280,25 @@ typedef struct
 int realtime_pc_enabled = 0;
 static pc_t realtime_pc;
 
-pc_t generate_pc(realtime_cloud_t* rt_cloud, int ref_x, int ref_y, int ref_z)
+void free_pc(pc_t* pc)
+{
+	if(pc->vao > 0)
+	{
+		mutex_gl.lock();
+		p_win->setActive(true);
+
+		glDeleteBuffers(1, &pc->vbo);
+		glDeleteVertexArrays(1, &pc->vao);
+
+
+		p_win->setActive(false);
+
+		mutex_gl.unlock();
+
+	}
+}
+
+pc_t generate_pc(small_cloud_t* cloud, int n_points, int ref_x, int ref_y, int ref_z)
 {
 	pc_t ret = {0};
 
@@ -1280,12 +1306,11 @@ pc_t generate_pc(realtime_cloud_t* rt_cloud, int ref_x, int ref_y, int ref_z)
 	ret.ref_y = ref_y / (VOX_UNITS[0]/2);
 	ret.ref_z = ref_z / (VOX_UNITS[0]/2);
 
-	static point_attrs_t attrs[MAX_REALTIME_N_POINTS];
+	point_attrs_t* attrs = malloc(n_points * sizeof(point_attrs_t));
 
-	int v = 0;
-	for(int pi=0; pi<rt_cloud->n_points; pi++)
+	for(int pi=0; pi<n_points; pi++)
 	{
-		tmp_point_t p = get_small_cloud_point(rt_cloud->points[pi]);
+		tmp_point_t p = get_small_cloud_point(cloud[pi]);
 
 		int r, g, b, a;
 		int range = view2d_max_z - view2d_min_z;
@@ -1308,7 +1333,8 @@ pc_t generate_pc(realtime_cloud_t* rt_cloud, int ref_x, int ref_y, int ref_z)
 		if(g < 0) g = 0; else if(g > 255) g = 255;
 		a = 255;
 
-		if(GET_SMALL_CLOUD_FLAG(rt_cloud->points[pi]))
+		// if flag is set, color is desaturated so that flagged data can be visually seen as different.
+		if(GET_SMALL_CLOUD_FLAG(cloud[pi]))
 		{
 			int rt = r, gt = g, bt = b;
 			r = (2*rt + gt + bt)/4;
@@ -1317,19 +1343,16 @@ pc_t generate_pc(realtime_cloud_t* rt_cloud, int ref_x, int ref_y, int ref_z)
 		}
 
 		// Convert millimeters to 3D world coordinate units:
-		attrs[v].position.x = p.x / (VOX_UNITS[0]/2);
-		attrs[v].position.y = p.z / (VOX_UNITS[0]/2);
-		attrs[v].position.z = p.y / (VOX_UNITS[0]/2);
-		attrs[v].color = RGBA32(r, g, b, a);
-
-		v++;
-
+		attrs[pi].position.x = p.x / (VOX_UNITS[0]/2);
+		attrs[pi].position.y = p.z / (VOX_UNITS[0]/2);
+		attrs[pi].position.z = p.y / (VOX_UNITS[0]/2);
+		attrs[pi].color = RGBA32(r, g, b, a);
 	}
 
-	int32_t mem = (v*sizeof(point_attrs_t));
-	printf("pc generation done. point count=%d Total memory: %d bytes\n", v, mem);
+	int32_t mem = n_points * sizeof(point_attrs_t);
+	printf("pc generation done. point count=%d Total memory: %d bytes\n", n_points, mem);
 
-	ret.n_points = v;
+	ret.n_points = n_points;
 
 	mutex_gl.lock();
 	p_win->setActive(true);
@@ -1341,7 +1364,7 @@ pc_t generate_pc(realtime_cloud_t* rt_cloud, int ref_x, int ref_y, int ref_z)
 
 	glBindBuffer(GL_ARRAY_BUFFER, ret.vbo);
 
-	glBufferData(GL_ARRAY_BUFFER, v*sizeof(point_attrs_t), attrs, GL_STATIC_DRAW);  
+	glBufferData(GL_ARRAY_BUFFER, n_points*sizeof(point_attrs_t), attrs, GL_STATIC_DRAW);  
 
 	// vertex positions, layout 0
 	glEnableVertexAttribArray(0);	
@@ -1355,11 +1378,16 @@ pc_t generate_pc(realtime_cloud_t* rt_cloud, int ref_x, int ref_y, int ref_z)
 
 	p_win->setActive(false);
 
+	free(attrs);
+
 	mutex_gl.unlock();
 
 	return ret;
 }
 
+
+
+// 2D version of the incoming 3D pointcloud:
 #define PC2D_SIZE 1024
 #define PC2D_LOWER_CUTOFF -500
 #define PC2D_UPPER_CUTOFF 2000
@@ -1373,7 +1401,7 @@ typedef struct
 
 static pc_2d_t realtime_pc_2d;
 
-int generate_pc_2d(pc_2d_t* pc_2d, realtime_cloud_t* rt_cloud, int ref_x, int ref_y, int ref_z)
+int generate_pc_2d(pc_2d_t* pc_2d, small_cloud_t* cloud, int n_points, int ref_x, int ref_y, int ref_z)
 {
 	pc_2d->ref_x = ref_x;
 	pc_2d->ref_y = ref_y;
@@ -1393,9 +1421,9 @@ int generate_pc_2d(pc_2d_t* pc_2d, realtime_cloud_t* rt_cloud, int ref_x, int re
 	uint8_t* zmap = calloc(PC2D_SIZE*PC2D_SIZE, sizeof(int8_t)); // Highest reading relative to ref_z, but not exceeding magical ceiling cutoff. Resolution 32mm. Offset of min_z.
 
 	int i = 0;
-	for(int pi=0; pi<rt_cloud->n_points; pi++)
+	for(int pi=0; pi<n_points; pi++)
 	{
-		tmp_point_t p = get_small_cloud_point(rt_cloud->points[pi]);
+		tmp_point_t p = get_small_cloud_point(cloud[pi]);
 
 		p.y *= -1; // screen axis swapped
 
@@ -1489,18 +1517,23 @@ static void render_pc(pc_t* p)
 	glDrawArrays(GL_POINTS, 0, p->n_points);
 }
 
+// Decompresses zlibbed pointcloud data in buf, generates either 2d or 3d graphics depending on the view mode.
 void process_realtime_pointcloud(uint8_t* buf, int buflen, bool view_3d)
 {
 	small_cloud_header_t* p_head = (small_cloud_header_t*)buf;
 	uint8_t* p_data = buf + sizeof(small_cloud_header_t);
 
-	static realtime_cloud_t rt_cloud;
-
 	assert(p_head->magic == 0xaa14);
 	assert(p_head->compression == 1);
-	assert(p_head->n_points <= MAX_REALTIME_N_POINTS);
+//	assert(p_head->n_points <= MAX_REALTIME_N_POINTS);
 
-	rt_cloud.n_points = p_head->n_points;
+	int n_points = p_head->n_points;
+
+	assert(n_points < 50000000);
+
+	small_cloud_t *cloud = malloc(sizeof(small_cloud_t) * n_points);
+
+	assert(cloud);
 
 	z_stream strm;
 	strm.zalloc = Z_NULL;
@@ -1517,8 +1550,8 @@ void process_realtime_pointcloud(uint8_t* buf, int buflen, bool view_3d)
 
 	int ret = 0;
 
-	strm.avail_out = sizeof(rt_cloud);
-	strm.next_out = (uint8_t*)(rt_cloud.points);
+	strm.avail_out = sizeof(small_cloud_t) * n_points;
+	strm.next_out = (uint8_t*)cloud;
 
 	ret = inflate(&strm, Z_FINISH);
 	assert(ret != Z_STREAM_ERROR);
@@ -1529,7 +1562,7 @@ void process_realtime_pointcloud(uint8_t* buf, int buflen, bool view_3d)
 		case Z_DATA_ERROR:
 		case Z_MEM_ERROR:
 		{
-			printf("ERROR: realtime cloud decompression error, inflate() returned %d\n", ret);
+			printf("ERROR: realtime point cloud decompression error, inflate() returned %d\n", ret);
 			abort();
 		}
 		default: break;
@@ -1540,18 +1573,50 @@ void process_realtime_pointcloud(uint8_t* buf, int buflen, bool view_3d)
 	inflateEnd(&strm);
 
 
-	//printf("draw_realtime_pointcloud: ref(%d, %d, %d), n=%d, decompression OK\n", 
-	//	p_head->ref_x_mm,  p_head->ref_y_mm, p_head->ref_z_mm, p_head->n_points);
-
 	if(view_3d)
 	{
-		realtime_pc = generate_pc(&rt_cloud, p_head->ref_x_mm, p_head->ref_y_mm, p_head->ref_z_mm);
+		free_pc(&realtime_pc);
+		realtime_pc = generate_pc(cloud, n_points, p_head->ref_x_mm, p_head->ref_y_mm, p_head->ref_z_mm);
 		realtime_pc_enabled = 1;
 	}
 	else
 	{
-		generate_pc_2d(&realtime_pc_2d, &rt_cloud, p_head->ref_x_mm, p_head->ref_y_mm, p_head->ref_z_mm);
+		generate_pc_2d(&realtime_pc_2d, cloud, n_points, p_head->ref_x_mm, p_head->ref_y_mm, p_head->ref_z_mm);
 	}
+
+	free(cloud);
+}
+
+void process_file_pointcloud(const char* fname, bool view_3d)
+{
+	int fd = open(fname, O_RDONLY);
+	
+	if(fd < 0)
+	{
+		printf("Error %d opening file %s: %s\n", errno, fname, strerror(errno));
+		return;
+	}
+
+	struct stat s;
+	int ret = fstat(fd, &s);
+	if(ret < 0)
+	{
+		printf("Error %d fstat() file %s: %s\n", errno, fname, strerror(errno));
+		return;
+	}
+
+	uint8_t* buf = mmap(NULL, s.st_size, PROT_READ, MAP_SHARED, fd, 0);
+
+	if(buf == MAP_FAILED)
+	{
+		printf("Error %d memory-mapping file %s: %s\n", errno, fname, strerror(errno));
+		return;
+	}
+
+	process_realtime_pointcloud(buf, s.st_size, view_3d);
+
+	munmap(buf, s.st_size);
+	close(fd);
 }
 
 void process_tcp_voxmap(uint8_t* buf, int buflen)

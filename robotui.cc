@@ -71,6 +71,8 @@ bool view_3d = false;
 bool show_realtime_pc = true;
 bool show_free = false;
 
+bool manual_drive = false;
+
 #define usleep(us_) do{sf::sleep(sf::microseconds(us_));}while(0)
 
 char status_text[2000];
@@ -428,6 +430,33 @@ void draw_texts(sf::RenderWindow& win)
 		win.draw(circ);
 
 	}
+
+}
+
+void draw_manual_drive(sf::RenderWindow& win)
+{
+	sf::Text t;
+	char buf[256];
+	t.setFont(arial);
+
+	const int box_xs = 200;
+	const int box_ys = 400;
+	sf::RectangleShape rect(sf::Vector2f( box_xs, box_ys));
+	rect.setPosition(5, 55);
+	rect.setFillColor(sf::Color(255,255,255,160));
+	win.draw(rect);
+
+	t.setString("MANUAL CONTROL");
+	t.setCharacterSize(16);
+	t.setFillColor(sf::Color(200,0,0,255));
+	t.setPosition(10, 60);
+	win.draw(t);
+
+	t.setString("Use arrows + shift for speed");
+	t.setCharacterSize(12);
+	t.setFillColor(sf::Color(200,0,0,255));
+	t.setPosition(10, 75);
+	win.draw(t);
 
 }
 
@@ -1182,12 +1211,12 @@ void print_drive_diag(void* m)
 {
 	drive_diag_t *mm = m;
 
-/*	printf("Drive diagnostics  ang_err=%5.2f deg lin_err=%d mm cur (%d, %d), targ (%d, %d), id=%d, remaining %d mm, stop_flags=%08x\nrun=%u, dbg1=%d, dbg2=%d, dbg3=%d, dbg4=%d\n"
+	printf("Drive diagnostics  ang_err=%5.2f deg lin_err=%d mm cur (%d, %d), targ (%d, %d), id=%d, remaining %d mm, stop_flags=%08x\nrun=%u, dbg1=%d, dbg2=%d, dbg3=%d, dbg4=%d\n"
 	       "dbg5=%d  dbg6=%d, ang_speed_i=%d, lin_speed_i=%d\n",
 		ANGI32TOFDEG(mm->ang_err), mm->lin_err, 
 		mm->cur_x, mm->cur_y, mm->target_x, mm->target_y, mm->id, mm->remaining, mm->micronavi_stop_flags, mm->run,
 		mm->dbg1, mm->dbg2, mm->dbg3, mm->dbg4, mm->dbg5, mm->dbg6, mm->ang_speed_i, mm->lin_speed_i);
-*/
+
 	memcpy(&latest_drive_diag, m, sizeof latest_drive_diag);
 }
 
@@ -3119,27 +3148,77 @@ int main(int argc, char** argv)
 			{
 				view_3d = false;
 			}
+			if(sf::Keyboard::isKeyPressed(sf::Keyboard::Num4))
+			{
+				process_file_pointcloud("../robotsoft/cla.smallcloud", view_3d);
+			}
+			if(sf::Keyboard::isKeyPressed(sf::Keyboard::Num5))
+			{
+				process_file_pointcloud("../robotsoft/clb.smallcloud", view_3d);
+			}
+			if(sf::Keyboard::isKeyPressed(sf::Keyboard::Num6))
+			{
+				process_file_pointcloud("../robotsoft/clc.smallcloud", view_3d);
+			}
+			if(sf::Keyboard::isKeyPressed(sf::Keyboard::Num7))
+			{
+				process_file_pointcloud("../robotsoft/cld.smallcloud", view_3d);
+			}
+			if(sf::Keyboard::isKeyPressed(sf::Keyboard::Num8))
+			{
+				process_file_pointcloud("../robotsoft/cle.smallcloud", view_3d);
+			}
 
-			if(sf::Keyboard::isKeyPressed(sf::Keyboard::Up))
+
+
+
+			static bool m_pressed;
+			if(sf::Keyboard::isKeyPressed(sf::Keyboard::M))
 			{
-				view2d_max_z += 50;
-				reload_map();
+				if(!m_pressed)
+				{
+					manual_drive = !manual_drive;
+					m_pressed = true;
+				}
 			}
-			if(sf::Keyboard::isKeyPressed(sf::Keyboard::Down))
+			else m_pressed = false;
+
+
+			if(manual_drive)
 			{
-				view2d_max_z -= 50;
-				reload_map();
+				int up = sf::Keyboard::isKeyPressed(sf::Keyboard::Up)?1:0;
+				int down = sf::Keyboard::isKeyPressed(sf::Keyboard::Down)?1:0;
+				int left = sf::Keyboard::isKeyPressed(sf::Keyboard::Left)?1:0;
+				int right = sf::Keyboard::isKeyPressed(sf::Keyboard::Right)?1:0;
+				int fast = (sf::Keyboard::isKeyPressed(sf::Keyboard::LShift)||sf::Keyboard::isKeyPressed(sf::Keyboard::RShift))?1:0;
+
+				uint8_t control = (fast<<4) | (up<<3) | (down<<2) | (left<<1) | (right<<0);
+				send(366, 1, &control);
 			}
-			if(sf::Keyboard::isKeyPressed(sf::Keyboard::Left))
+			else
 			{
-				view2d_min_z -= 50;
-				reload_map();
+				if(sf::Keyboard::isKeyPressed(sf::Keyboard::Up))
+				{
+					view2d_max_z += 50;
+					reload_map();
+				}
+				if(sf::Keyboard::isKeyPressed(sf::Keyboard::Down))
+				{
+					view2d_max_z -= 50;
+					reload_map();
+				}
+				if(sf::Keyboard::isKeyPressed(sf::Keyboard::Left))
+				{
+					view2d_min_z -= 50;
+					reload_map();
+				}
+				if(sf::Keyboard::isKeyPressed(sf::Keyboard::Right))
+				{
+					view2d_min_z += 50;
+					reload_map();
+				}
 			}
-			if(sf::Keyboard::isKeyPressed(sf::Keyboard::Right))
-			{
-				view2d_min_z += 50;
-				reload_map();
-			}
+
 
 			if(sf::Keyboard::isKeyPressed(sf::Keyboard::Return))
 			{
@@ -3283,6 +3362,13 @@ int main(int argc, char** argv)
 
 		draw_area(win);
 
+		if(manual_drive)
+		{
+			// Keep the robot centered.
+			origin_x = cur_x + mm_per_pixel*screen_x/2;
+			origin_y = cur_y + mm_per_pixel*screen_y/2;
+			draw_manual_drive(win);
+		}
 
 		gui.draw();
 
