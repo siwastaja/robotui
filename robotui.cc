@@ -478,7 +478,7 @@ tof_raw_ambient8_t latest_tof_ambients[N_TOF_SENSORS];
 #define DATA_OVEREXP 65535
 
 float red_dist  = 0.0;
-float blue_dist = 1000.0;
+float blue_dist = 10000.0;
 //float red_dist  = 1600.0;
 //float blue_dist = 2200.0;
 
@@ -1196,7 +1196,15 @@ void print_hw_pose(void* m)
 {
 	hw_pose_t *mm = m;
 
-//	printf("HW pose  ang=%5.1f deg  x=%8d mm  y=%8d mm\n", ANG32TOFDEG(mm->ang), mm->x, mm->y);
+
+	uint8_t* kakka = m;
+	for(int i=0; i<24; i++)
+	{
+		printf("%d ", kakka[i]);
+	}
+	printf("\n");
+
+	printf("HW pose  ang=%5.1f deg  x=%8d mm  y=%8d mm\n", ANG32TOFDEG(mm->ang), mm->x, mm->y);
 
 	cur_angle = ANG32TOFDEG(mm->ang);
 	cur_pitch = ANGI32TOFDEG(mm->pitch);
@@ -2454,6 +2462,30 @@ int main(int argc, char** argv)
 
 			gui.handleEvent(event);
 
+			if(event.type == sf::Event::KeyPressed)
+			{
+				if(event.key.code == sf::Keyboard::Num4)
+				{
+					process_file_pointcloud("../robotsoft/cla.smallcloud", view_3d);
+				}
+				if(event.key.code == sf::Keyboard::Num5)
+				{
+					process_file_pointcloud("../robotsoft/clb.smallcloud", view_3d);
+				}
+				if(event.key.code == sf::Keyboard::Num6)
+				{
+					process_file_pointcloud("../robotsoft/clc.smallcloud", view_3d);
+				}
+				if(event.key.code == sf::Keyboard::Num7)
+				{
+					process_file_pointcloud("../robotsoft/cld.smallcloud", view_3d);
+				}
+				if(event.key.code == sf::Keyboard::Num8)
+				{
+					process_file_pointcloud("../robotsoft/cle.smallcloud", view_3d);
+				}
+			}
+
 
 		}
 
@@ -3094,16 +3126,17 @@ int main(int argc, char** argv)
 				f_pressed[11] = true;
 			}} else f_pressed[11] = false;
 
-			if(sf::Keyboard::isKeyPressed(sf::Keyboard::R))
+			if(!view_3d)
 			{
-				show_routing = true;
+				if(sf::Keyboard::isKeyPressed(sf::Keyboard::R))
+				{
+					show_routing = true;
+				}
+				else
+					show_routing = false;
+
+				//show_free = sf::Keyboard::isKeyPressed(sf::Keyboard::F);
 			}
-			else
-				show_routing = false;
-
-			show_free = sf::Keyboard::isKeyPressed(sf::Keyboard::F);
-
-
 
 			float speed = 100.0;
 
@@ -3131,11 +3164,11 @@ int main(int argc, char** argv)
 				campos_x += speed*cos(camera_yaw-(M_PI/2.0));
 			}
 
-			if(sf::Keyboard::isKeyPressed(sf::Keyboard::PageUp))
+			if(sf::Keyboard::isKeyPressed(sf::Keyboard::R))
 			{
 				campos_z += speed;
 			}
-			if(sf::Keyboard::isKeyPressed(sf::Keyboard::PageDown))
+			if(sf::Keyboard::isKeyPressed(sf::Keyboard::F))
 			{
 				campos_z += -speed;
 			}
@@ -3148,27 +3181,19 @@ int main(int argc, char** argv)
 			{
 				view_3d = false;
 			}
-			if(sf::Keyboard::isKeyPressed(sf::Keyboard::Num4))
-			{
-				process_file_pointcloud("../robotsoft/cla.smallcloud", view_3d);
-			}
-			if(sf::Keyboard::isKeyPressed(sf::Keyboard::Num5))
-			{
-				process_file_pointcloud("../robotsoft/clb.smallcloud", view_3d);
-			}
-			if(sf::Keyboard::isKeyPressed(sf::Keyboard::Num6))
-			{
-				process_file_pointcloud("../robotsoft/clc.smallcloud", view_3d);
-			}
-			if(sf::Keyboard::isKeyPressed(sf::Keyboard::Num7))
-			{
-				process_file_pointcloud("../robotsoft/cld.smallcloud", view_3d);
-			}
-			if(sf::Keyboard::isKeyPressed(sf::Keyboard::Num8))
-			{
-				process_file_pointcloud("../robotsoft/cle.smallcloud", view_3d);
-			}
 
+			static bool num1_pressed;
+			if(sf::Keyboard::isKeyPressed(sf::Keyboard::Num1))
+			{
+				if(!num1_pressed)
+				{
+					static int displim = 2;
+					if(displim == 2) displim = 0; else displim = 2;
+					set_display_limit(displim);
+					num1_pressed = true;
+				}
+			}
+			else num1_pressed = false;
 
 
 
@@ -3192,8 +3217,16 @@ int main(int argc, char** argv)
 				int right = sf::Keyboard::isKeyPressed(sf::Keyboard::Right)?1:0;
 				int fast = (sf::Keyboard::isKeyPressed(sf::Keyboard::LShift)||sf::Keyboard::isKeyPressed(sf::Keyboard::RShift))?1:0;
 
+				static uint8_t prev_control;
+				static unsigned int cnt;
 				uint8_t control = (fast<<4) | (up<<3) | (down<<2) | (left<<1) | (right<<0);
-				send(366, 1, &control);
+
+				cnt++;
+				// do not send commands too often - unless the button state changes
+				if(((cnt & 0b1111) == 0b1111) || (control != prev_control))
+					send(366, 1, &control);
+
+				prev_control = control;
 			}
 			else
 			{
@@ -3365,7 +3398,7 @@ int main(int argc, char** argv)
 		if(manual_drive)
 		{
 			// Keep the robot centered.
-			origin_x = cur_x + mm_per_pixel*screen_x/2;
+			origin_x = -cur_x + mm_per_pixel*screen_x/2;
 			origin_y = cur_y + mm_per_pixel*screen_y/2;
 			draw_manual_drive(win);
 		}

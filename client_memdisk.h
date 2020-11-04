@@ -53,6 +53,7 @@ void process_file_pointcloud(const char* fname, bool view_3d);
 void process_tcp_voxmap(uint8_t* buf, int buflen);
 
 void draw_realtime_pc_2d(sf::RenderWindow& win);
+void set_display_limit(int val);
 
 extern sf::Mutex mutex_gl;
 

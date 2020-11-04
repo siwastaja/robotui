@@ -101,7 +101,20 @@ typedef struct __attribute__((packed))
 } routing_page_t;
 
 //static int display_limit[4] = {1, 3, 6, 6};
-static int display_limit[4]   = {3, 6, 15, 15};
+//static int display_limit[4]   = {3, 6, 15, 15};
+static int display_limit[4]   = {1, 1, 1, 1};
+
+void set_display_limit(int val)
+{
+	for(int i=0; i<4; i++)
+	{
+		int newval = val*(i+1);
+		if(newval < 1) newval = 1;
+		else if(newval > 15) newval = 15;
+		display_limit[i] = newval;
+	}
+}
+
 static void load_page_pile_from_disk(int px, int py, int rl, int do_reload)
 {
 	assert(px >= 0 && px < MAX_PAGES_X && py >= 0 && py < MAX_PAGES_Y && rl >= 0 && rl < MAX_RESOLEVELS);
@@ -638,11 +651,11 @@ int manage_page_pile_ranges()
 
 void map_set_1()
 {
-	strncpy(mapdir, "./current_maps", 1023);
+	strncpy(mapdir, "../robotsoft/current_maps", 1023);
 }
 void map_set_2()
 {
-	strncpy(mapdir, "./current_maps_2", 1023);
+	strncpy(mapdir, "../robotsoft/current_maps_2", 1023);
 }
 
 
